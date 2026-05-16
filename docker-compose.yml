@@ -1,0 +1,16 @@
+services:
+  krstock:
+    build: .
+    ports:
+      - "8080:8080"
+    env_file:
+      - .env
+    environment:
+      REPORTS_DIR: /data/reports
+      CACHE_DIR: /data/cache
+      WEB_HOST: "0.0.0.0"
+      WEB_PORT: "8080"
+    volumes:
+      - ./reports:/data/reports
+      - ./cache:/data/cache
+    restart: unless-stopped

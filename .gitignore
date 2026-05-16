@@ -17,3 +17,8 @@ wheels/
 reports/
 cache/
 *.log
+
+# Frontend
+web/node_modules/
+src/scrap_dc_krstock/web/static/assets/
+src/scrap_dc_krstock/web/static/index.html

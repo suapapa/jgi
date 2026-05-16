@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from .checkpoint import RunCheckpoint
@@ -14,16 +14,37 @@ logger = logging.getLogger(__name__)
 DEFAULT_INCLUDE_CATEGORIES = {"일반", "뉴스"}
 
 
+def calendar_window(target: date) -> tuple[datetime, datetime]:
+    """KST 달력 하루 [00:00, 다음날 00:00)."""
+    start = datetime(target.year, target.month, target.day, tzinfo=KST)
+    return start, start + timedelta(days=1)
+
+
+def in_window(posted_at: datetime, start: datetime, end: datetime | None) -> bool:
+    if posted_at < start:
+        return False
+    if end is not None and posted_at >= end:
+        return False
+    return True
+
+
+def filter_metas_in_window(
+    metas: list[PostMeta], start: datetime, end: datetime | None
+) -> list[PostMeta]:
+    return [m for m in metas if in_window(m.posted_at, start, end)]
+
+
 def collect_meta_since(
     scraper: Scraper,
     cutoff: datetime,
     *,
+    end: datetime | None = None,
     include_categories: Iterable[str] = DEFAULT_INCLUDE_CATEGORIES,
     max_pages: int = 2000,
     progress=None,
     checkpoint: RunCheckpoint | None = None,
 ) -> list[PostMeta]:
-    """`cutoff` 시각 이후의 게시글 메타데이터를 페이지 1부터 순회하며 수집.
+    """`cutoff` 시각 이후(및 `end` 미만) 게시글 메타데이터를 페이지 1부터 순회하며 수집.
 
     `checkpoint`가 주어지면 기존 metas.jsonl 을 로드해 dedupe하고,
     `state.json`의 `last_scanned_page` 다음 페이지부터 이어한다.
@@ -35,7 +56,7 @@ def collect_meta_since(
 
     if checkpoint is not None:
         for m in checkpoint.iter_metas():
-            if m.posted_at >= cutoff and m.no not in seen_nos:
+            if in_window(m.posted_at, cutoff, end) and m.no not in seen_nos:
                 seen_nos.add(m.no)
                 collected.append(m)
         state = checkpoint.load_state()
@@ -66,6 +87,8 @@ def collect_meta_since(
                 continue
             if include is not None and p.category not in include:
                 continue
+            if end is not None and p.posted_at >= end:
+                continue
             if p.posted_at < cutoff:
                 page_old += 1
                 continue
@@ -94,7 +117,7 @@ def collect_meta_since(
         if checkpoint is not None:
             checkpoint.save_state(meta_collection_done=True)
 
-    return collected
+    return filter_metas_in_window(collected, cutoff, end)
 
 
 def fetch_bodies(

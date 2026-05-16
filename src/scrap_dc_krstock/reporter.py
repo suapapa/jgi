@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .models import AnalysisResult, Post, PostMeta
@@ -107,15 +107,25 @@ def render_markdown(
     return "\n".join(lines)
 
 
+def report_filename(start: datetime, end: datetime, *, daily: bool = False) -> str:
+    if daily:
+        return f"krstock_daily_{start:%Y-%m-%d}.md"
+    end_inclusive = end - timedelta(seconds=1) if end > start else end
+    if start.date() == end_inclusive.date():
+        return f"krstock_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
+    return f"krstock_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
+
+
 def write_report(
     text: str,
     output_dir: str | Path,
     start: datetime,
     end: datetime,
+    *,
+    daily: bool = False,
 ) -> Path:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    fname = f"krstock_{start:%Y-%m-%d}_to_{end:%Y-%m-%d}.md"
-    path = out / fname
+    path = out / report_filename(start, end, daily=daily)
     path.write_text(text, encoding="utf-8")
     return path

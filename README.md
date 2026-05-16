@@ -44,6 +44,8 @@ uv run scrap-dc-krstock --model gpt-4o
 ## 옵션
 
 - `--days N` 일주일 → N일치 (기본 7)
+- `--date YYYY-MM-DD` KST 달력 하루 (00:00~23:59). 지정 시 `--days` 무시
+- `--force` 기존 리포트 파일이 있어도 다시 생성
 - `--top N` 본문 크롤링할 상위 게시글 수 (기본 30)
 - `--output DIR` 리포트 출력 디렉토리 (기본 `reports/`)
 - `--model NAME` 모델 override
@@ -89,6 +91,29 @@ uv run scrap-dc-krstock --days 7 --refresh-analysis  # LLM만 다시
   - `--min-delay`, `--max-delay`를 늘리거나
   - User-Agent를 추가하거나
   - `cloudscraper` 의존성을 추가해 fallback 구성하세요.
+
+## 일일 리포트 + 웹 열람
+
+전날(KST 00:00~23:59) 달력 하루치를 수집해 리포트를 만들고, 브라우저에서 마크다운을 읽을 수 있습니다.
+
+```bash
+# 달력 하루 (수동)
+uv run scrap-dc-krstock --date 2026-05-15 --top 30
+
+# 프론트 빌드 (최초 1회)
+cd web && npm install && npm run build && cd ..
+
+# API + 스케줄러 + 웹 UI (기본 매일 07:00 KST에 전날 리포트 생성)
+uv run scrap-dc-krstock-serve
+# → http://127.0.0.1:8080
+
+# VPS (Docker)
+docker compose up -d --build
+```
+
+환경 변수(`.env`): `WEB_USERNAME` / `WEB_PASSWORD`를 설정하면 전체 사이트에 HTTP Basic 인증이 적용됩니다. `SCHEDULE_CRON`으로 스케줄을 바꿀 수 있습니다 (기본 `0 7 * * *`).
+
+수동 재생성: `curl -u user:pass -X POST http://localhost:8080/api/jobs -H 'Content-Type: application/json' -d '{"date":"2026-05-15","force":true}'`
 
 ## 예시 워크플로우
 

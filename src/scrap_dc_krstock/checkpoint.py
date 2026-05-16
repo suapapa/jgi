@@ -24,9 +24,21 @@ from .models import AnalysisResult, Post, PostMeta
 
 
 class RunCheckpoint:
-    def __init__(self, cache_dir: Path | str, days: int, run_date: date | None = None):
-        run_date = run_date or date.today()
-        self.run_id = f"days{days}_{run_date:%Y-%m-%d}"
+    def __init__(
+        self,
+        cache_dir: Path | str,
+        days: int | None = None,
+        run_date: date | None = None,
+        *,
+        run_id: str | None = None,
+    ):
+        if run_id is not None:
+            self.run_id = run_id
+        else:
+            if days is None:
+                raise ValueError("days or run_id required")
+            run_date = run_date or date.today()
+            self.run_id = f"days{days}_{run_date:%Y-%m-%d}"
         self.dir = Path(cache_dir) / self.run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.dir / "state.json"
