@@ -5,6 +5,7 @@ import logging
 import os
 
 from openai import OpenAI
+from pydantic import ValidationError
 
 from .models import AnalysisResult, Post, PostMeta
 
@@ -21,7 +22,31 @@ SYSTEM_PROMPT = """당신은 한국 주식 커뮤니티(DC인사이드 한국주
 - 인상적이거나 대표적인 의견 (간결한 인용)
 - 투자자들이 걱정하는 리스크
 
-응답은 반드시 지정된 JSON 스키마를 따르고, 한국어로 작성하세요."""
+매우 중요한 출력 규칙:
+1. 응답은 반드시 JSON 객체 하나여야 한다. 마크다운/설명/코드블록 금지.
+2. JSON의 **키 이름은 반드시 영어**로 아래 명세된 그대로 사용한다. 한국어 키 금지.
+   (예: "overall_sentiment" O, "전체_감정" X / "분석_요약" X)
+3. **값(value)** 중 자유 텍스트(요약, 인용, 화제, 리스크 등)는 한국어로 작성한다.
+4. enum 값("bullish"/"bearish"/"neutral"/"mixed")은 영어 그대로 사용한다.
+
+필수 JSON 스키마 (모든 키 필수):
+{
+  "overall_sentiment": "bullish" | "bearish" | "neutral" | "mixed",
+  "sentiment_breakdown": {
+    "bullish": <0~1 사이 실수>,
+    "bearish": <0~1 사이 실수>,
+    "neutral": <0~1 사이 실수>
+  },
+  "hot_tickers": [
+    {"ticker": "<종목명>", "mentions": <정수>, "sentiment": "bullish|bearish|neutral|mixed"}
+  ],
+  "key_themes": ["<핵심 화제 한국어>", ...],
+  "notable_quotes": [
+    {"quote": "<인용 한국어>", "title": "<게시글 제목>", "views": <정수>, "recommends": <정수>}
+  ],
+  "risks": ["<리스크 한국어>", ...],
+  "summary": "<전반 민심 요약 한국어, 3~6문장>"
+}"""
 
 
 _RESULT_JSON_SCHEMA = {
@@ -170,7 +195,12 @@ class Analyzer:
 
 ---
 
-위 데이터를 바탕으로 한국 주식 시장에 대한 커뮤니티 민심을 분석하고, 지정된 JSON 형식으로 응답하세요. 응답은 JSON 객체 하나여야 합니다."""
+위 데이터를 바탕으로 한국 주식 시장에 대한 커뮤니티 민심을 분석하고, 시스템 메시지에 명시된 JSON 스키마대로 응답하세요.
+
+규칙 재확인:
+- 출력은 JSON 객체 **하나만**. 앞뒤 설명/마크다운/```json 금지.
+- 최상위 키는 정확히: overall_sentiment, sentiment_breakdown, hot_tickers, key_themes, notable_quotes, risks, summary
+- 키를 한국어로 번역하지 말 것. 값(설명문)은 한국어로 쓸 것."""
 
     def analyze(self, all_metas: list[PostMeta], top_posts: list[Post]) -> AnalysisResult:
         user_prompt = self._build_user_prompt(all_metas, top_posts)
@@ -182,12 +212,43 @@ class Analyzer:
             len(user_prompt),
         )
 
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": user_prompt},
+        ]
+        content = self._call(messages)
+        data = _extract_json(content)
+
+        try:
+            return AnalysisResult.model_validate(data)
+        except ValidationError as e:
+            logger.warning(
+                "1차 응답이 스키마와 불일치. 키 정정 재요청. 받은 최상위 키=%s, 오류=%s",
+                list(data.keys()) if isinstance(data, dict) else type(data).__name__,
+                e.errors()[:3],
+            )
+            correction = (
+                "직전 응답의 JSON 키가 스키마와 다릅니다. 다시 보내세요.\n"
+                "최상위 키는 정확히 다음 영문 키만 사용: "
+                "overall_sentiment, sentiment_breakdown, hot_tickers, key_themes, "
+                "notable_quotes, risks, summary.\n"
+                "값(설명문)은 한국어로 작성하되, **키는 절대 한국어로 번역하지 마세요.**\n"
+                "직전에 보낸 내용:\n" + content[:2000]
+            )
+            messages.append({"role": "assistant", "content": content})
+            messages.append({"role": "user", "content": correction})
+            content2 = self._call(messages)
+            data2 = _extract_json(content2)
+            try:
+                return AnalysisResult.model_validate(data2)
+            except ValidationError:
+                logger.error("재시도 후에도 스키마 불일치. 원본 응답: %s", content2[:1000])
+                raise
+
+    def _call(self, messages: list[dict]) -> str:
         kwargs = dict(
             model=self.model,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt},
-            ],
+            messages=messages,
             temperature=0.3,
         )
         # JSON 모드: OpenAI 호환 서버 중 일부만 지원하므로 실패 시 일반 텍스트로 폴백.
@@ -199,10 +260,7 @@ class Analyzer:
         except Exception as e:
             logger.warning("response_format=json_object 미지원으로 추정, 일반 호출로 폴백: %s", e)
             resp = self.client.chat.completions.create(**kwargs)
-
-        content = resp.choices[0].message.content or ""
-        data = _extract_json(content)
-        return AnalysisResult.model_validate(data)
+        return resp.choices[0].message.content or ""
 
 
 def _extract_json(text: str) -> dict:

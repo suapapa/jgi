@@ -4,6 +4,7 @@ import logging
 from datetime import datetime, timedelta
 from typing import Iterable
 
+from .checkpoint import RunCheckpoint
 from .models import Post, PostMeta
 from .scraper import KST, Scraper, build_view_url, iter_list_pages, parse_view
 
@@ -18,16 +19,39 @@ def collect_meta_since(
     cutoff: datetime,
     *,
     include_categories: Iterable[str] = DEFAULT_INCLUDE_CATEGORIES,
-    max_pages: int = 200,
+    max_pages: int = 2000,
     progress=None,
+    checkpoint: RunCheckpoint | None = None,
 ) -> list[PostMeta]:
-    """`cutoff` 시각 이후의 게시글 메타데이터를 페이지 1부터 순회하며 수집."""
+    """`cutoff` 시각 이후의 게시글 메타데이터를 페이지 1부터 순회하며 수집.
+
+    `checkpoint`가 주어지면 기존 metas.jsonl 을 로드해 dedupe하고,
+    `state.json`의 `last_scanned_page` 다음 페이지부터 이어한다.
+    """
     include = set(include_categories) if include_categories else None
     collected: list[PostMeta] = []
     seen_nos: set[int] = set()
+    start_page = 1
+
+    if checkpoint is not None:
+        for m in checkpoint.iter_metas():
+            if m.posted_at >= cutoff and m.no not in seen_nos:
+                seen_nos.add(m.no)
+                collected.append(m)
+        state = checkpoint.load_state()
+        last_done = int(state.get("last_scanned_page", 0))
+        if last_done > 0:
+            # 한 페이지는 다시 스캔 (안전장치: 마지막 페이지가 쓰기 도중 끊겼을 수 있음)
+            start_page = last_done
+            logger.info(
+                "checkpoint 재개: 기존 %d건 로드, 페이지 %d부터 재시작",
+                len(collected),
+                start_page,
+            )
+
     pages_with_only_old = 0
 
-    for page, posts in iter_list_pages(scraper):
+    for page, posts in iter_list_pages(scraper, start=start_page):
         if page > max_pages:
             logger.warning("max_pages=%d 도달, 수집 중단", max_pages)
             break
@@ -35,7 +59,7 @@ def collect_meta_since(
             logger.info("페이지 %d 게시글 없음, 종료", page)
             break
 
-        page_new = 0
+        page_new: list[PostMeta] = []
         page_old = 0
         for p in posts:
             if p.no in seen_nos:
@@ -46,20 +70,29 @@ def collect_meta_since(
                 page_old += 1
                 continue
             seen_nos.add(p.no)
+            page_new.append(p)
             collected.append(p)
-            page_new += 1
+
+        if checkpoint is not None:
+            checkpoint.append_metas(page_new)
+            checkpoint.save_state(last_scanned_page=page)
 
         if progress is not None:
-            progress(page, page_new, len(collected))
+            progress(page, len(page_new), len(collected))
 
         # 한 페이지가 전부 cutoff보다 오래된 글이면 종료
-        if page_new == 0 and page_old > 0:
+        if not page_new and page_old > 0:
             pages_with_only_old += 1
             if pages_with_only_old >= 2:
                 logger.info("2페이지 연속 cutoff 이전만 → 수집 종료")
+                if checkpoint is not None:
+                    checkpoint.save_state(meta_collection_done=True)
                 break
         else:
             pages_with_only_old = 0
+    else:
+        if checkpoint is not None:
+            checkpoint.save_state(meta_collection_done=True)
 
     return collected
 
@@ -70,10 +103,23 @@ def fetch_bodies(
     *,
     progress=None,
     max_chars: int = 4000,
+    checkpoint: RunCheckpoint | None = None,
 ) -> list[Post]:
-    """상위 N개 메타데이터의 본문을 가져와 Post 리스트로 반환."""
+    """상위 N개 메타데이터의 본문을 가져와 Post 리스트로 반환.
+
+    `checkpoint`가 주어지면 bodies.jsonl에 이미 있는 글은 재요청하지 않는다.
+    """
+    cached: dict[int, Post] = checkpoint.load_bodies() if checkpoint else {}
     posts: list[Post] = []
+
     for i, meta in enumerate(metas, 1):
+        if meta.no in cached:
+            post = cached[meta.no]
+            if progress is not None:
+                progress(i, len(metas), post, cached=True)
+            posts.append(post)
+            continue
+
         url = meta.url or build_view_url(meta.no)
         try:
             html = scraper.fetch(url, referer=url)
@@ -82,9 +128,14 @@ def fetch_bodies(
             logger.warning("본문 가져오기 실패 no=%s: %s", meta.no, e)
             body = ""
         post = Post(**meta.model_dump(), body=body)
+
+        if checkpoint is not None:
+            checkpoint.append_body(post)
+
         posts.append(post)
         if progress is not None:
-            progress(i, len(metas), post)
+            progress(i, len(metas), post, cached=False)
+
     return posts
 
 

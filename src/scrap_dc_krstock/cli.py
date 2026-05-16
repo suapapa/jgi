@@ -12,6 +12,7 @@ from rich.console import Console
 from rich.logging import RichHandler
 
 from .analyzer import Analyzer
+from .checkpoint import RunCheckpoint
 from .collector import collect_meta_since, default_cutoff, fetch_bodies
 from .ranker import select_top, score
 from .reporter import render_markdown, write_report
@@ -77,6 +78,21 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="LLM 호출 없이 수집+랭킹 결과를 JSON으로 저장 (디버깅)",
     )
+    p.add_argument(
+        "--cache-dir",
+        default="cache",
+        help="체크포인트 저장 디렉토리 (기본 cache/)",
+    )
+    p.add_argument(
+        "--fresh",
+        action="store_true",
+        help="기존 체크포인트 무시하고 처음부터 다시 수집",
+    )
+    p.add_argument(
+        "--refresh-analysis",
+        action="store_true",
+        help="수집/본문 캐시는 유지하고 LLM 분석만 다시 수행",
+    )
     p.add_argument("-v", "--verbose", action="store_true", help="DEBUG 로깅")
     return p.parse_args(argv)
 
@@ -91,6 +107,17 @@ def main(argv: list[str] | None = None) -> int:
     console.print(
         f"[bold]수집 기간[/bold]: {cutoff:%Y-%m-%d %H:%M} ~ {end:%Y-%m-%d %H:%M} (KST)"
     )
+
+    # 체크포인트 준비 (dry-run에서도 동작 — 캐시만 사용, analysis는 건너뜀)
+    checkpoint = RunCheckpoint(args.cache_dir, days=args.days)
+    if args.fresh:
+        console.print(f"[yellow]--fresh: 캐시 초기화 ({checkpoint.dir})[/yellow]")
+        checkpoint.reset()
+    elif args.refresh_analysis:
+        console.print(f"[yellow]--refresh-analysis: 분석 캐시만 삭제[/yellow]")
+        checkpoint.reset_analysis()
+
+    console.print(f"[dim]캐시: {checkpoint.summary()}[/dim]")
 
     # 1) 메타데이터 수집
     pages_scanned = 0
@@ -107,7 +134,10 @@ def main(argv: list[str] | None = None) -> int:
             cutoff,
             max_pages=args.max_pages,
             progress=_meta_progress,
+            checkpoint=checkpoint,
         )
+        # 재개 시에는 progress가 호출 안 됐을 수 있으니 state에서 가져옴
+        pages_scanned = max(pages_scanned, checkpoint.load_state().get("last_scanned_page", 0))
         console.print(
             f"  → 총 [bold]{len(metas)}[/bold]건 수집 ({pages_scanned}페이지 스캔)"
         )
@@ -119,9 +149,10 @@ def main(argv: list[str] | None = None) -> int:
             f" (가중치 추천×{args.recommend_weight})"
         )
 
-        def _body_progress(i: int, n: int, post) -> None:
+        def _body_progress(i: int, n: int, post, cached: bool = False) -> None:
+            tag = "cache" if cached else "fetch"
             console.print(
-                f"  · [{i}/{n}] no={post.no} 본문 {len(post.body)}자: {post.title[:50]}",
+                f"  · {tag} {i}/{n} no={post.no} 본문 {len(post.body)}자: {post.title[:50]}",
                 style="dim",
             )
 
@@ -130,6 +161,7 @@ def main(argv: list[str] | None = None) -> int:
             top_metas,
             max_chars=args.body_max_chars,
             progress=_body_progress,
+            checkpoint=checkpoint,
         )
 
     # dry-run: LLM 호출 없이 JSON으로 저장
@@ -152,10 +184,16 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[bold green]Dry-run 결과 저장:[/bold green] {path}")
         return 0
 
-    # 3) LLM 분석
-    console.print("[bold]3) LLM 분석…[/bold]")
-    analyzer = Analyzer(model=args.model)
-    result = analyzer.analyze(metas, top_posts)
+    # 3) LLM 분석 — 캐시 우선
+    cached_result = checkpoint.load_analysis()
+    if cached_result is not None:
+        console.print("[bold]3) LLM 분석…[/bold] [dim](캐시 사용, 재실행하려면 --refresh-analysis)[/dim]")
+        result = cached_result
+    else:
+        console.print("[bold]3) LLM 분석…[/bold]")
+        analyzer = Analyzer(model=args.model)
+        result = analyzer.analyze(metas, top_posts)
+        checkpoint.save_analysis(result)
 
     # 4) 리포트 작성
     console.print("[bold]4) 리포트 작성…[/bold]")

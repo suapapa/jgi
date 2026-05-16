@@ -49,6 +49,35 @@ uv run scrap-dc-krstock --model gpt-4o
 - `--model NAME` 모델 override
 - `--dry-run` LLM 호출 생략, 수집/랭킹 결과만 JSON으로 저장
 - `--recommend-weight F` 랭킹 점수에서 추천수 가중치 (기본 3.0)
+- `--cache-dir DIR` 체크포인트 저장 디렉토리 (기본 `cache/`)
+- `--fresh` 기존 체크포인트 무시하고 처음부터 다시 수집
+- `--refresh-analysis` 수집/본문 캐시는 유지하고 LLM 분석만 다시 수행
+
+## 단계별 자동 재개
+
+세 단계 (① 메타 수집 → ② 본문 크롤링 → ③ LLM 분석) 모두 `cache/days{N}_{YYYY-MM-DD}/` 아래에 점진적으로 저장됩니다.
+
+```
+cache/days7_2026-05-16/
+├── state.json        # last_scanned_page, meta_collection_done
+├── metas.jsonl       # 페이지마다 append-only
+├── bodies.jsonl      # 본문마다 append-only
+└── analysis.json     # LLM 결과
+```
+
+중간에 실패하면 **같은 날짜 + 같은 `--days`로 다시 실행**하기만 하면 자동으로 이어합니다:
+
+- 메타 수집 도중 멈춤 → 마지막으로 스캔한 페이지부터 재개
+- 본문 크롤링 도중 멈춤 → 이미 받은 본문은 스킵
+- LLM 분석 실패 → 메타/본문은 그대로 두고 LLM만 다시
+- 리포트만 다시 생성 → 그냥 또 실행 (캐시된 결과 사용)
+
+처음부터 다시 하려면:
+
+```bash
+uv run scrap-dc-krstock --days 7 --fresh         # 전체 다시
+uv run scrap-dc-krstock --days 7 --refresh-analysis  # LLM만 다시
+```
 
 ## 주의
 
