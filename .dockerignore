@@ -1,0 +1,15 @@
+.git
+.github
+.agents
+.claude
+cache
+reports
+web/node_modules
+**/__pycache__
+*.pyc
+.venv
+.env
+.env.*
+!.env.example
+*.md
+!README.md
