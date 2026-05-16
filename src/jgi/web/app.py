@@ -77,7 +77,7 @@ async def lifespan(app: FastAPI):
         _scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="KRStock Sentiment", lifespan=lifespan)
+app = FastAPI(title="JooGall Sentiment Index", lifespan=lifespan)
 
 
 @app.get("/api/health")
@@ -174,7 +174,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
     host = os.getenv("WEB_HOST", "0.0.0.0")
     port = int(os.getenv("WEB_PORT", "8080"))
-    uvicorn.run("scrap_dc_krstock.web.app:app", host=host, port=port, reload=False)
+    uvicorn.run("jgi.web.app:app", host=host, port=port, reload=False)
 
 
 if __name__ == "__main__":

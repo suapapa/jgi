@@ -14,10 +14,10 @@ COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --no-dev
-COPY --from=frontend /build/src/scrap_dc_krstock/web/static ./src/scrap_dc_krstock/web/static
+COPY --from=frontend /build/src/jgi/web/static ./src/jgi/web/static
 
 ENV REPORTS_DIR=/data/reports
 ENV CACHE_DIR=/data/cache
 EXPOSE 8080
 
-CMD ["uv", "run", "scrap-dc-krstock-serve"]
+CMD ["uv", "run", "jgi-serve"]

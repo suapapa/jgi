@@ -109,11 +109,11 @@ def render_markdown(
 
 def report_filename(start: datetime, end: datetime, *, daily: bool = False) -> str:
     if daily:
-        return f"krstock_daily_{start:%Y-%m-%d}.md"
+        return f"jgi_daily_{start:%Y-%m-%d}.md"
     end_inclusive = end - timedelta(seconds=1) if end > start else end
     if start.date() == end_inclusive.date():
-        return f"krstock_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
-    return f"krstock_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
+        return f"jgi_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
+    return f"jgi_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
 
 
 def write_report(

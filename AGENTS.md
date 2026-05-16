@@ -4,7 +4,7 @@
 
 ## 한 줄 요약
 
-DC인사이드 한국주식 갤러리(`gall.dcinside.com/mgallery/board/lists/?id=krstock`)의 일정 기간 게시글을 수집해 OpenAI 호환 LLM으로 시장 민심을 요약하는 Python CLI.
+**JGI (JooGall Sentiment Index)** — DC인사이드 한국주식 갤러리(`gall.dcinside.com/mgallery/board/lists/?id=krstock`)의 일정 기간 게시글을 수집해 OpenAI 호환 LLM으로 시장 민심을 요약하는 Python CLI.
 
 ## 파이프라인 (3단계 + 리포트)
 
@@ -12,21 +12,23 @@ DC인사이드 한국주식 갤러리(`gall.dcinside.com/mgallery/board/lists/?i
 1) 메타 수집      → metas.jsonl  (페이지마다 append)
 2) 본문 크롤링    → bodies.jsonl (글마다 append)
 3) LLM 분석       → analysis.json
-4) 마크다운 리포트 → reports/krstock_...md
+4) 마크다운 리포트 → reports/jgi_...md
 ```
 
 각 단계는 `RunCheckpoint`에 점진적으로 저장되어 **중간 실패 시 자동 재개**됨. 같은 날짜 + 같은 `--days`이면 캐시 디렉토리가 동일하므로 그냥 재실행하면 이어한다.
 
 ## 디렉토리 / 진입점
 
-- `src/scrap_dc_krstock/cli.py:main` — argparse + 4단계 오케스트레이션 (체크포인트 wiring 포함)
-- `src/scrap_dc_krstock/scraper.py` — `Scraper` 클래스(httpx + tenacity 재시도), `parse_list`, `parse_view`
-- `src/scrap_dc_krstock/collector.py` — `collect_meta_since`, `fetch_bodies` (둘 다 `checkpoint=` 옵션 지원)
-- `src/scrap_dc_krstock/ranker.py` — `select_top` (조회수 + 추천수×가중치)
-- `src/scrap_dc_krstock/analyzer.py` — `Analyzer` (OpenAI 호환 클라이언트, base_url 설정 가능)
-- `src/scrap_dc_krstock/reporter.py` — 마크다운 렌더
-- `src/scrap_dc_krstock/checkpoint.py` — `RunCheckpoint` (jsonl append-only 저장)
-- `src/scrap_dc_krstock/models.py` — `PostMeta`, `Post`, `AnalysisResult` (pydantic)
+- `src/jgi/cli.py:main` — argparse + 4단계 오케스트레이션 (체크포인트 wiring 포함)
+- `src/jgi/scraper.py` — `Scraper` 클래스(httpx + tenacity 재시도), `parse_list`, `parse_view`
+- `src/jgi/collector.py` — `collect_meta_since`, `fetch_bodies` (둘 다 `checkpoint=` 옵션 지원)
+- `src/jgi/ranker.py` — `select_top` (조회수 + 추천수×가중치)
+- `src/jgi/analyzer.py` — `Analyzer` (OpenAI 호환 클라이언트, base_url 설정 가능)
+- `src/jgi/reporter.py` — 마크다운 렌더
+- `src/jgi/checkpoint.py` — `RunCheckpoint` (jsonl append-only 저장)
+- `src/jgi/models.py` — `PostMeta`, `Post`, `AnalysisResult` (pydantic)
+
+CLI: `jgi` (수집·분석), `jgi-serve` (웹 UI + 스케줄러)
 
 ## 도메인 지식 (놓치기 쉬운 사실)
 
@@ -61,14 +63,15 @@ DC인사이드 한국주식 갤러리(`gall.dcinside.com/mgallery/board/lists/?i
 - **딜레이**: 0.4–0.9초가 현재 안전선. 더 줄이면 차단 위험.
 - **모바일 URL**: `m.dcinside.com/board/krstock` → 데스크탑으로 301 리다이렉트. 분기시키지 말 것.
 - **댓글**: 현재 스코프 밖. 모델에 `comments` 카운트만 들어있고 본문은 댓글 미포함.
+- **리포트 파일명**: 신규는 `jgi_*.md`; 웹 인덱스는 구 `krstock_*.md`도 읽음 (`reports_index.py`).
 
 ## 동작 확인 (스모크)
 
 ```bash
 # 캐시/리포트 정리하지 말고 빠르게 동작만 확인
-uv run scrap-dc-krstock --days 1 --top 2 --max-pages 3 --dry-run
+uv run jgi --days 1 --top 2 --max-pages 3 --dry-run
 # → 두 번째 실행은 "페이지 3부터 재시작" 메시지가 나와야 함
-uv run scrap-dc-krstock --days 1 --top 2 --max-pages 5 --dry-run
+uv run jgi --days 1 --top 2 --max-pages 5 --dry-run
 ```
 
 ## 환경

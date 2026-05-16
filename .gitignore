@@ -20,5 +20,10 @@ cache/
 
 # Frontend
 web/node_modules/
-src/scrap_dc_krstock/web/static/assets/
-src/scrap_dc_krstock/web/static/index.html
+src/jgi/web/static/assets/
+src/jgi/web/static/index.html
+
+# AI Agent
+skills-lock.json
+.agents/
+.claude/

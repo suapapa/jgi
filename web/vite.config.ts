@@ -4,7 +4,7 @@ import { resolve } from "path";
 export default defineConfig({
   base: "/",
   build: {
-    outDir: resolve(__dirname, "../src/scrap_dc_krstock/web/static"),
+    outDir: resolve(__dirname, "../src/jgi/web/static"),
     emptyOutDir: true,
   },
   server: {

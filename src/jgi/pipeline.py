@@ -159,7 +159,7 @@ def _run_report_locked(
 
     if cfg.dry_run:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        path = cfg.output_dir / f"krstock_dryrun_{datetime.now(KST):%Y-%m-%d_%H%M%S}.json"
+        path = cfg.output_dir / f"jgi_dryrun_{datetime.now(KST):%Y-%m-%d_%H%M%S}.json"
         from .ranker import score
 
         dump = {

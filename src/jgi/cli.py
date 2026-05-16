@@ -29,7 +29,7 @@ def _setup_logging(verbose: bool) -> None:
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
-        prog="scrap-dc-krstock",
+        prog="jgi",
         description="DC인사이드 한국주식 갤러리 일주일 민심 분석",
     )
     p.add_argument("--days", type=int, default=7, help="수집 기간 (일, 기본 7)")

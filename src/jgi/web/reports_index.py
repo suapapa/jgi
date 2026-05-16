@@ -5,9 +5,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-_DAILY = re.compile(r"^krstock_daily_(?P<d>\d{4}-\d{2}-\d{2})\.md$")
+_DAILY = re.compile(r"^(?:jgi|krstock)_daily_(?P<d>\d{4}-\d{2}-\d{2})\.md$")
 _RANGE = re.compile(
-    r"^krstock_(?P<start>\d{4}-\d{2}-\d{2})_to_(?P<end>\d{4}-\d{2}-\d{2})\.md$"
+    r"^(?:jgi|krstock)_(?P<start>\d{4}-\d{2}-\d{2})_to_(?P<end>\d{4}-\d{2}-\d{2})\.md$"
 )
 
 
@@ -74,11 +74,14 @@ def list_reports(reports_dir: Path) -> list[ReportEntry]:
     if not reports_dir.is_dir():
         return []
     entries: list[ReportEntry] = []
-    for path in reports_dir.glob("krstock*.md"):
-        if path.is_file():
-            entry = parse_report_path(path)
-            if entry:
-                entries.append(entry)
+    seen: set[str] = set()
+    for pattern in ("jgi*.md", "krstock*.md"):
+        for path in reports_dir.glob(pattern):
+            if path.is_file() and path.name not in seen:
+                entry = parse_report_path(path)
+                if entry:
+                    seen.add(path.name)
+                    entries.append(entry)
     entries.sort(key=lambda e: e.start_date, reverse=True)
     return entries
 

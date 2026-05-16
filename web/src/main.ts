@@ -42,10 +42,10 @@ function renderShell(inner: string): void {
   app.innerHTML = `
     <header class="site-header">
       <a href="/" class="brand">
-        <span class="brand-mark">KR</span>
-        <span class="brand-text">한국주식 갤 민심</span>
+        <span class="brand-mark">JGI</span>
+        <span class="brand-text">JooGall Sentiment Index</span>
       </a>
-      <p class="tagline">DC인사이드 커뮤니티 일일 요약</p>
+      <p class="tagline">DC인사이드 한국주식 갤 민심</p>
     </header>
     <main class="main">${inner}</main>
     <footer class="site-footer">자동 수집·LLM 요약 · 투자 참고용</footer>
@@ -92,7 +92,7 @@ function renderReport(slug: string, md: string): void {
     <nav class="breadcrumb"><a href="/">← 목록</a></nav>
     <article class="report-body card prose">${html}</article>
   `);
-  document.title = `${slug} · 한국주식 갤 민심`;
+  document.title = `${slug} · JGI`;
 }
 
 async function boot(): Promise<void> {

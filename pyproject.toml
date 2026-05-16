@@ -1,7 +1,7 @@
 [project]
-name = "scrap-dc-krstock"
+name = "jgi"
 version = "0.1.0"
-description = "DC인사이드 한국주식 갤러리 게시글을 수집해 LLM으로 시장 민심을 요약하는 도구"
+description = "JooGall Sentiment Index — DC인사이드 한국주식 갤러리 민심 분석"
 readme = "README.md"
 authors = [
     { name = "Homin Lee", email = "i@homin.dev" }
@@ -22,8 +22,8 @@ dependencies = [
 ]
 
 [project.scripts]
-scrap-dc-krstock = "scrap_dc_krstock.cli:main"
-scrap-dc-krstock-serve = "scrap_dc_krstock.web.app:main"
+jgi = "jgi.cli:main"
+jgi-serve = "jgi.web.app:main"
 
 [build-system]
 requires = ["uv_build>=0.11.14,<0.12.0"]

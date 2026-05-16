@@ -1,4 +1,4 @@
-# scrap-dc-krstock
+# JGI — JooGall Sentiment Index
 
 DC인사이드 [한국주식 갤러리](https://gall.dcinside.com/mgallery/board/lists/?id=krstock)의 지난 일주일치 게시글을 수집해, OpenAI 호환 LLM으로 시장 민심을 요약한 마크다운 리포트를 생성합니다.
 
@@ -7,7 +7,7 @@ DC인사이드 [한국주식 갤러리](https://gall.dcinside.com/mgallery/board
 1. 목록 페이지를 순회하며 일주일치 게시글 **메타데이터**(번호/제목/작성자/작성일/조회/추천)를 전부 수집
 2. 조회수 + (추천수 × 가중치) 기준 **상위 N개**만 상세 페이지 본문을 크롤링
 3. 메타데이터 전체 + 상위 N개 본문을 LLM에 보내 종합 감정·화제 종목·주요 화제·우려를 요약
-4. `reports/krstock_YYYY-MM-DD_to_YYYY-MM-DD.md` 로 저장
+4. `reports/jgi_YYYY-MM-DD_to_YYYY-MM-DD.md` 로 저장
 
 ## 설치
 
@@ -21,16 +21,16 @@ cp .env.example .env
 
 ```bash
 # 기본 (7일치, 상위 30개 본문)
-uv run scrap-dc-krstock
+uv run jgi
 
 # 옵션 지정
-uv run scrap-dc-krstock --days 7 --top 30 --output reports/
+uv run jgi --days 7 --top 30 --output reports/
 
 # LLM 호출 없이 수집만 (디버깅)
-uv run scrap-dc-krstock --dry-run
+uv run jgi --dry-run
 
 # 모델 override
-uv run scrap-dc-krstock --model gpt-4o
+uv run jgi --model gpt-4o
 ```
 
 ## 환경 변수
@@ -77,8 +77,8 @@ cache/days7_2026-05-16/
 처음부터 다시 하려면:
 
 ```bash
-uv run scrap-dc-krstock --days 7 --fresh         # 전체 다시
-uv run scrap-dc-krstock --days 7 --refresh-analysis  # LLM만 다시
+uv run jgi --days 7 --fresh         # 전체 다시
+uv run jgi --days 7 --refresh-analysis  # LLM만 다시
 ```
 
 ## 주의
@@ -98,13 +98,13 @@ uv run scrap-dc-krstock --days 7 --refresh-analysis  # LLM만 다시
 
 ```bash
 # 달력 하루 (수동)
-uv run scrap-dc-krstock --date 2026-05-15 --top 30
+uv run jgi --date 2026-05-15 --top 30
 
 # 프론트 빌드 (최초 1회)
 cd web && npm install && npm run build && cd ..
 
 # API + 스케줄러 + 웹 UI (기본 매일 07:00 KST에 전날 리포트 생성)
-uv run scrap-dc-krstock-serve
+uv run jgi-serve
 # → http://127.0.0.1:8080
 
 # VPS (Docker)
@@ -119,11 +119,11 @@ docker compose up -d --build
 
 ```bash
 # 0) 빠른 검증 (LLM 호출 없이 1일치만)
-uv run scrap-dc-krstock --days 1 --top 3 --dry-run
+uv run jgi --days 1 --top 3 --dry-run
 
 # 1) 2일치로 LLM 분석까지 가볍게 (~5분)
-uv run scrap-dc-krstock --days 2 --top 20
+uv run jgi --days 2 --top 20
 
 # 2) 본 실행 (7일치, ~20분)
-uv run scrap-dc-krstock --days 7 --top 30
+uv run jgi --days 7 --top 30
 ```
