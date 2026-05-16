@@ -9,7 +9,7 @@ from datetime import date
 from pathlib import Path
 
 from dotenv import load_dotenv
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, status
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Query, status
 from fastapi.responses import FileResponse, PlainTextResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
@@ -144,7 +144,19 @@ if STATIC_DIR.is_dir():
         return FileResponse(STATIC_DIR / "index.html")
 
     @app.get("/reports/{slug}")
-    def report_page(slug: str, _: None = Depends(verify_credentials)):
+    def report_page(
+        slug: str,
+        raw: bool = Query(False, description="true면 마크다운 원문(plain text)"),
+        _: None = Depends(verify_credentials),
+    ):
+        if raw:
+            content = read_report(REPORTS_DIR, slug)
+            if content is None:
+                raise HTTPException(status_code=404, detail="Report not found")
+            return PlainTextResponse(
+                content,
+                media_type="text/plain; charset=utf-8",
+            )
         return FileResponse(STATIC_DIR / "index.html")
 else:
 
