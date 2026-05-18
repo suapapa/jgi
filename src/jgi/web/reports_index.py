@@ -5,10 +5,13 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from ..scraper import KST
+
 _DAILY = re.compile(r"^(?:jgi|krstock)_daily_(?P<d>\d{4}-\d{2}-\d{2})\.md$")
 _RANGE = re.compile(
     r"^(?:jgi|krstock)_(?P<start>\d{4}-\d{2}-\d{2})_to_(?P<end>\d{4}-\d{2}-\d{2})\.md$"
 )
+_FEAR_GREED_RE = re.compile(r"bullish\s+([\d.]+)%\s*·\s*bearish\s+([\d.]+)%")
 
 
 @dataclass
@@ -74,14 +77,17 @@ def list_reports(reports_dir: Path) -> list[ReportEntry]:
     if not reports_dir.is_dir():
         return []
     entries: list[ReportEntry] = []
-    seen: set[str] = set()
-    for pattern in ("jgi*.md", "krstock*.md"):
-        for path in reports_dir.glob(pattern):
-            if path.is_file() and path.name not in seen:
-                entry = parse_report_path(path)
-                if entry:
-                    seen.add(path.name)
-                    entries.append(entry)
+    for path in reports_dir.iterdir():
+        if not path.is_file():
+            continue
+        name = path.name
+        if not name.endswith(".md"):
+            continue
+        if not (name.startswith("jgi") or name.startswith("krstock")):
+            continue
+        entry = parse_report_path(path)
+        if entry:
+            entries.append(entry)
     entries.sort(key=lambda e: e.start_date, reverse=True)
     return entries
 
@@ -94,4 +100,22 @@ def read_report(reports_dir: Path, slug: str) -> str | None:
 
 
 def format_mtime(ts: float) -> str:
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+    return datetime.fromtimestamp(ts, tz=KST).strftime("%Y-%m-%d %H:%M")
+
+
+def extract_fear_greed_score(content: str) -> float | None:
+    """감정 분포에서 공포탐욕지수 추출 (bullish% - bearish% + 50)"""
+    match = _FEAR_GREED_RE.search(content)
+    if not match:
+        return None
+
+    try:
+        bullish = float(match.group(1))
+        bearish = float(match.group(2))
+        # 공포탐욕지수: 0=공포, 100=탐욕
+        # bullish와 bearish의 차이를 이용해 계산
+        score = (bullish - bearish) + 50
+        # 0-100 범위로 제한
+        return max(0, min(100, score))
+    except (ValueError, IndexError):
+        return None

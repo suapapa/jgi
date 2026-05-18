@@ -45,20 +45,41 @@ class RunCheckpoint:
         self.metas_path = self.dir / "metas.jsonl"
         self.bodies_path = self.dir / "bodies.jsonl"
         self.analysis_path = self.dir / "analysis.json"
+        self._state: dict | None = None
 
-    # ----- state -----
-    def load_state(self) -> dict:
-        if not self.state_path.exists():
-            return {}
-        return json.loads(self.state_path.read_text(encoding="utf-8"))
+    def _ensure_state(self) -> dict:
+        if self._state is not None:
+            return self._state
+        if self.state_path.exists():
+            self._state = json.loads(self.state_path.read_text(encoding="utf-8"))
+        else:
+            self._state = {}
+        return self._state
 
-    def save_state(self, **fields) -> None:
-        state = self.load_state()
-        state.update(fields)
+    def _persist_state(self) -> None:
+        state = self._ensure_state()
         self.state_path.write_text(
             json.dumps(state, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+    # ----- state -----
+    def load_state(self) -> dict:
+        return dict(self._ensure_state())
+
+    def save_state(self, **fields) -> None:
+        state = self._ensure_state()
+        state.update(fields)
+        self._persist_state()
+
+    def _count_jsonl_lines(self, path: Path) -> int:
+        if not path.exists():
+            return 0
+        count = 0
+        with path.open("rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                count += chunk.count(b"\n")
+        return count
 
     # ----- metas (append-only jsonl) -----
     def iter_metas(self) -> Iterator[PostMeta]:
@@ -67,17 +88,16 @@ class RunCheckpoint:
         with self.metas_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if not line:
-                    continue
-                yield PostMeta.model_validate_json(line)
+                if line:
+                    yield PostMeta.model_validate_json(line)
 
     def append_metas(self, posts: list[PostMeta]) -> None:
         if not posts:
             return
         with self.metas_path.open("a", encoding="utf-8") as f:
-            for p in posts:
-                f.write(p.model_dump_json())
-                f.write("\n")
+            f.writelines(p.model_dump_json() + "\n" for p in posts)
+        state = self._ensure_state()
+        state["meta_count"] = int(state.get("meta_count", 0)) + len(posts)
 
     # ----- bodies (append-only jsonl) -----
     def load_bodies(self) -> dict[int, Post]:
@@ -87,16 +107,17 @@ class RunCheckpoint:
         with self.bodies_path.open(encoding="utf-8") as f:
             for line in f:
                 line = line.strip()
-                if not line:
-                    continue
-                p = Post.model_validate_json(line)
-                result[p.no] = p
+                if line:
+                    p = Post.model_validate_json(line)
+                    result[p.no] = p
         return result
 
     def append_body(self, post: Post) -> None:
         with self.bodies_path.open("a", encoding="utf-8") as f:
             f.write(post.model_dump_json())
             f.write("\n")
+        state = self._ensure_state()
+        state["body_count"] = int(state.get("body_count", 0)) + 1
 
     # ----- analysis result -----
     def load_analysis(self) -> AnalysisResult | None:
@@ -118,15 +139,20 @@ class RunCheckpoint:
         if self.dir.exists():
             shutil.rmtree(self.dir)
         self.dir.mkdir(parents=True, exist_ok=True)
+        self._state = {}
 
     def reset_analysis(self) -> None:
         if self.analysis_path.exists():
             self.analysis_path.unlink()
 
     def summary(self) -> str:
-        state = self.load_state()
-        n_metas = sum(1 for _ in self.iter_metas()) if self.metas_path.exists() else 0
-        n_bodies = len(self.load_bodies()) if self.bodies_path.exists() else 0
+        state = self._ensure_state()
+        n_metas = int(state["meta_count"]) if "meta_count" in state else self._count_jsonl_lines(
+            self.metas_path
+        )
+        n_bodies = int(state["body_count"]) if "body_count" in state else self._count_jsonl_lines(
+            self.bodies_path
+        )
         has_analysis = self.analysis_path.exists()
         return (
             f"run_id={self.run_id} "

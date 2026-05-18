@@ -133,13 +133,15 @@ def fetch_bodies(
     `checkpoint`가 주어지면 bodies.jsonl에 이미 있는 글은 재요청하지 않는다.
     """
     cached: dict[int, Post] = checkpoint.load_bodies() if checkpoint else {}
+    cached_nos = cached.keys()
     posts: list[Post] = []
+    total = len(metas)
 
     for i, meta in enumerate(metas, 1):
-        if meta.no in cached:
+        if meta.no in cached_nos:
             post = cached[meta.no]
             if progress is not None:
-                progress(i, len(metas), post, cached=True)
+                progress(i, total, post, cached=True)
             posts.append(post)
             continue
 
@@ -157,7 +159,7 @@ def fetch_bodies(
 
         posts.append(post)
         if progress is not None:
-            progress(i, len(metas), post, cached=False)
+            progress(i, total, post, cached=False)
 
     return posts
 

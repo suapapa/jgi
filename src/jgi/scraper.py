@@ -27,6 +27,14 @@ VIEW_PATH = "/mgallery/board/view/"
 
 KST = timezone(timedelta(hours=9))
 
+_RE_TIME = re.compile(r"\d{2}:\d{2}")
+_RE_DATE_DOT = re.compile(r"\d{2}\.\d{2}\.\d{2}")
+_RE_DATE_SLASH = re.compile(r"\d{2}/\d{2}/\d{2}")
+_RE_LEADING_INT = re.compile(r"(\d+)")
+_RE_MULTI_NEWLINE = re.compile(r"\n{3,}")
+
+_LIST_REFERER = f"{BASE}{LIST_PATH}"
+
 _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
@@ -117,12 +125,12 @@ def _parse_dc_datetime(td_date) -> datetime | None:
 
     text = td_date.get_text(strip=True)
     now = datetime.now(KST)
-    if re.fullmatch(r"\d{2}:\d{2}", text):
+    if _RE_TIME.fullmatch(text):
         h, m = map(int, text.split(":"))
         return now.replace(hour=h, minute=m, second=0, microsecond=0)
-    if re.fullmatch(r"\d{2}\.\d{2}\.\d{2}", text):
+    if _RE_DATE_DOT.fullmatch(text):
         return datetime.strptime(text, "%y.%m.%d").replace(tzinfo=KST)
-    if re.fullmatch(r"\d{2}/\d{2}/\d{2}", text):
+    if _RE_DATE_SLASH.fullmatch(text):
         return datetime.strptime(text, "%y/%m/%d").replace(tzinfo=KST)
     return None
 
@@ -131,8 +139,10 @@ def _int_or_zero(s: str) -> int:
     s = (s or "").strip().replace(",", "")
     if not s:
         return 0
+    if s.isdigit():
+        return int(s)
     # DC sometimes uses 'k' for thousands, but list page usually doesn't.
-    m = re.match(r"(\d+)", s)
+    m = _RE_LEADING_INT.match(s)
     return int(m.group(1)) if m else 0
 
 
@@ -216,7 +226,7 @@ def parse_view(html: str, max_chars: int = 4000) -> str:
 
     text = body.get_text("\n", strip=True)
     # 연속 빈 줄 정리
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    text = _RE_MULTI_NEWLINE.sub("\n\n", text)
     if len(text) > max_chars:
         text = text[:max_chars] + "\n…(이하 생략)"
     return text
@@ -227,6 +237,6 @@ def iter_list_pages(scraper: Scraper, start: int = 1) -> Iterable[tuple[int, lis
     page = start
     while True:
         url = build_list_url(page)
-        html = scraper.fetch(url, referer=BASE + LIST_PATH)
+        html = scraper.fetch(url, referer=_LIST_REFERER)
         yield page, parse_list(html)
         page += 1

@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .models import AnalysisResult, Post, PostMeta
+from .scraper import KST
 
 
 def _fmt_pct(v: float) -> str:
@@ -17,6 +18,12 @@ def _sentiment_emoji(s: str) -> str:
         "neutral": "⚪ 중립",
         "mixed": "🟡 혼조",
     }.get(s, s)
+
+
+def _format_period_label(start: datetime, end: datetime) -> str:
+    if start.date() == end.date():
+        return f"{start:%Y-%m-%d}"
+    return f"{start:%Y-%m-%d} ~ {end:%Y-%m-%d}"
 
 
 def render_markdown(
@@ -33,7 +40,7 @@ def render_markdown(
     ) if sb else "—"
 
     lines: list[str] = []
-    lines.append(f"# 한국주식 갤러리 민심 리포트 ({start:%Y-%m-%d} ~ {end:%Y-%m-%d})")
+    lines.append(f"# 한국주식 갤러리 민심 리포트 ({_format_period_label(start, end)})")
     lines.append("")
     lines.append("## 한눈에 보기")
     lines.append(f"- 종합 감정: **{_sentiment_emoji(result.overall_sentiment)}**")
@@ -102,7 +109,7 @@ def render_markdown(
 
     lines.append("")
     lines.append("---")
-    lines.append(f"_생성: {datetime.now():%Y-%m-%d %H:%M:%S}_")
+    lines.append(f"_생성: {datetime.now(KST):%Y-%m-%d %H:%M:%S} KST_")
 
     return "\n".join(lines)
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import heapq
+
 from .models import PostMeta
 
 
@@ -13,6 +15,12 @@ def select_top(
     recommend_weight: float = 3.0,
 ) -> list[PostMeta]:
     """추천수에 가중치를 두고 조회수와 합산해 상위 N개 선정."""
-    if n <= 0:
+    if n <= 0 or not metas:
         return []
-    return sorted(metas, key=lambda p: score(p, recommend_weight), reverse=True)[:n]
+
+    def rank_key(p: PostMeta) -> float:
+        return score(p, recommend_weight)
+
+    if len(metas) <= n:
+        return sorted(metas, key=rank_key, reverse=True)
+    return heapq.nlargest(n, metas, key=rank_key)

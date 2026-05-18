@@ -3,7 +3,6 @@ from __future__ import annotations
 import logging
 import os
 import secrets
-import threading
 from contextlib import asynccontextmanager
 from datetime import date
 from pathlib import Path
@@ -15,7 +14,7 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .reports_index import list_reports, read_report
+from .reports_index import extract_fear_greed_score, list_reports, read_report
 from .scheduler import JobState, create_scheduler, run_scheduled_job
 
 load_dotenv()
@@ -64,6 +63,11 @@ class JobRequest(BaseModel):
     force: bool = False
 
 
+class ReportResponse(BaseModel):
+    content: str
+    fear_greed_score: float | None = None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _scheduler
@@ -105,6 +109,15 @@ def api_report(slug: str, _: None = Depends(verify_credentials)):
     if content is None:
         raise HTTPException(status_code=404, detail="Report not found")
     return PlainTextResponse(content, media_type="text/markdown; charset=utf-8")
+
+
+@app.get("/api/reports/{slug}/json", response_model=ReportResponse)
+def api_report_json(slug: str, _: None = Depends(verify_credentials)):
+    content = read_report(REPORTS_DIR, slug)
+    if content is None:
+        raise HTTPException(status_code=404, detail="Report not found")
+    score = extract_fear_greed_score(content)
+    return ReportResponse(content=content, fear_greed_score=score)
 
 
 def _run_job_bg(target_date: date | None, force: bool) -> None:

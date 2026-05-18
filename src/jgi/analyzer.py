@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import heapq
 import json
 import logging
 import os
+import re
+from collections import Counter
 
 from openai import OpenAI
 from pydantic import ValidationError
@@ -131,20 +134,24 @@ class Analyzer:
     ) -> str:
         # 메타 통계
         total = len(all_metas)
-        total_views = sum(m.views for m in all_metas)
-        total_rec = sum(m.recommends for m in all_metas)
-        total_cmt = sum(m.comments for m in all_metas)
-        by_cat: dict[str, int] = {}
+        total_views = 0
+        total_rec = 0
+        total_cmt = 0
+        by_cat: Counter[str] = Counter()
         for m in all_metas:
-            by_cat[m.category] = by_cat.get(m.category, 0) + 1
-        cat_line = ", ".join(f"{k} {v}건" for k, v in sorted(by_cat.items(), key=lambda x: -x[1]))
+            total_views += m.views
+            total_rec += m.recommends
+            total_cmt += m.comments
+            by_cat[m.category] += 1
+        cat_line = ", ".join(f"{k} {v}건" for k, v in by_cat.most_common())
 
         # 한국주식 갤러리는 글이 매우 많아서 전체를 그대로 못 넣는다.
         # 추천 상위 + 조회 상위 + 댓글 상위를 골고루 sampling.
         if total > meta_sample_size:
-            by_rec = sorted(all_metas, key=lambda m: m.recommends, reverse=True)[: meta_sample_size // 3]
-            by_view = sorted(all_metas, key=lambda m: m.views, reverse=True)[: meta_sample_size // 3]
-            by_cmt = sorted(all_metas, key=lambda m: m.comments, reverse=True)[: meta_sample_size // 3]
+            third = meta_sample_size // 3
+            by_rec = heapq.nlargest(third, all_metas, key=lambda m: m.recommends)
+            by_view = heapq.nlargest(third, all_metas, key=lambda m: m.views)
+            by_cmt = heapq.nlargest(third, all_metas, key=lambda m: m.comments)
             seen: set[int] = set()
             sample: list[PostMeta] = []
             for src in (by_rec, by_view, by_cmt):
@@ -263,6 +270,9 @@ class Analyzer:
         return resp.choices[0].message.content or ""
 
 
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(\{.*?\})\s*```", re.DOTALL)
+
+
 def _extract_json(text: str) -> dict:
     """LLM이 가끔 ```json``` 블록이나 앞뒤 설명을 붙이는 경우 JSON 객체만 뽑아낸다."""
     text = text.strip()
@@ -273,9 +283,7 @@ def _extract_json(text: str) -> dict:
         pass
 
     # ```json ... ``` 블록 추출
-    import re
-
-    m = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL)
+    m = _JSON_FENCE_RE.search(text)
     if m:
         return json.loads(m.group(1))
 
