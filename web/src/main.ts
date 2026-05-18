@@ -200,6 +200,18 @@ function renderReport(slug: string, md: string, score?: number): void {
 }
 
 async function boot(): Promise<void> {
+  // Sync scroll for background animations
+  window.addEventListener(
+    "scroll",
+    () => {
+      document.documentElement.style.setProperty(
+        "--scroll-y",
+        `${window.scrollY}`,
+      );
+    },
+    { passive: true },
+  );
+
   renderShell(`<p class="loading">불러오는 중…</p>`);
   const slug = slugFromPath();
 

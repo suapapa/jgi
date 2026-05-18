@@ -16,12 +16,25 @@ console = Console()
 
 
 def _setup_logging(verbose: bool) -> None:
+    from datetime import datetime, timezone, timedelta
+    from rich.text import Text
+
+    KST = timezone(timedelta(hours=9))
+    logging.Formatter.converter = lambda *args: datetime.now(KST).timetuple()
+
     level = logging.DEBUG if verbose else logging.INFO
     logging.basicConfig(
         level=level,
         format="%(message)s",
         datefmt="[%X]",
-        handlers=[RichHandler(console=console, rich_tracebacks=True, show_time=False)],
+        handlers=[
+            RichHandler(
+                console=console,
+                rich_tracebacks=True,
+                show_time=True,
+                log_time_format=lambda dt: Text(datetime.now(KST).strftime("[%X KST]"))
+            )
+        ],
     )
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

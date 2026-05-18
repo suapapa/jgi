@@ -183,11 +183,22 @@ else:
 
 def main() -> None:
     import uvicorn
+    import copy
+    from datetime import datetime, timezone, timedelta
 
-    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    KST = timezone(timedelta(hours=9))
+    logging.Formatter.converter = lambda *args: datetime.now(KST).timetuple()
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s", datefmt="%Y-%m-%d %H:%M:%S KST")
+
+    log_config = copy.deepcopy(uvicorn.config.LOGGING_CONFIG)
+    log_config["formatters"]["default"]["fmt"] = "%(asctime)s [%(levelprefix)s] %(message)s"
+    log_config["formatters"]["default"]["datefmt"] = "%Y-%m-%d %H:%M:%S KST"
+    log_config["formatters"]["access"]["fmt"] = '%(asctime)s [%(levelprefix)s] %(client_addr)s - "%(request_line)s" %(status_code)s'
+    log_config["formatters"]["access"]["datefmt"] = "%Y-%m-%d %H:%M:%S KST"
+
     host = os.getenv("WEB_HOST", "0.0.0.0")
     port = int(os.getenv("WEB_PORT", "8080"))
-    uvicorn.run("jgi.web.app:app", host=host, port=port, reload=False)
+    uvicorn.run("jgi.web.app:app", host=host, port=port, reload=False, log_config=log_config)
 
 
 if __name__ == "__main__":
