@@ -184,16 +184,18 @@ function renderList(entries: ReportEntry[]): void {
 }
 
 function renderReport(slug: string, md: string, score?: number): void {
-  const html = DOMPurify.sanitize(
+  let html = DOMPurify.sanitize(
     marked.parse(normalizeGeneratedAt(md), {
       gfm: true,
       breaks: true,
     }) as string,
   );
   const gauge = score !== undefined ? renderFearGreedGauge(score) : "";
+  if (gauge) {
+    html = html.replace("</h1>", `</h1>\n${gauge}`);
+  }
   renderShell(`
     <nav class="breadcrumb"><a href="/">← 목록</a></nav>
-    ${gauge}
     <article class="report-body card prose">${html}</article>
   `);
   document.title = `${slug} · JGI`;
