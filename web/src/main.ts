@@ -73,9 +73,9 @@ function renderFearGreedGauge(score: number): string {
   ];
 
   return `
-    <div class="gauge-container card">
+    <div class="gauge-container">
       <div class="gauge-header">
-        <h2>공포와 탐욕 지수</h2>
+        <span class="gauge-title">공포와 탐욕 지수</span>
         <span class="gauge-subtitle">코스피 시장 심리</span>
       </div>
       <div class="gauge-content">
