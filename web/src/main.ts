@@ -84,7 +84,7 @@ function renderFearGreedGauge(score: number): string {
           <span class="gauge-label">현재 지수</span>
         </div>
         <div class="gauge-visual">
-          <svg viewBox="0 0 300 180" class="gauge-svg">
+          <svg viewBox="0 0 300 180" class="gauge-svg" role="img" aria-label="공포와 탐욕 지수: ${score.toFixed(1)}점 (코스피 시장 심리)">
             <defs>
               <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
@@ -202,14 +202,21 @@ function renderReport(slug: string, md: string, score?: number): void {
 }
 
 async function boot(): Promise<void> {
-  // Sync scroll for background animations
+  // Sync scroll for background animations using requestAnimationFrame to prevent layout thrashing
+  let ticking = false;
   window.addEventListener(
     "scroll",
     () => {
-      document.documentElement.style.setProperty(
-        "--scroll-y",
-        `${window.scrollY}`,
-      );
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          document.documentElement.style.setProperty(
+            "--scroll-y",
+            `${window.scrollY}`,
+          );
+          ticking = false;
+        });
+        ticking = true;
+      }
     },
     { passive: true },
   );
