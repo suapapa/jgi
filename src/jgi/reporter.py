@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from .galleries import DEFAULT_GALLERY, Gallery
 from .models import AnalysisResult, Post, PostMeta
 from .scraper import KST
 
@@ -33,6 +34,7 @@ def render_markdown(
     start: datetime,
     end: datetime,
     pages_scanned: int,
+    gallery: Gallery = DEFAULT_GALLERY,
 ) -> str:
     sb = result.sentiment_breakdown
     sb_line = " · ".join(
@@ -40,7 +42,7 @@ def render_markdown(
     ) if sb else "—"
 
     lines: list[str] = []
-    lines.append(f"# 한국주식 갤러리 민심 리포트 ({_format_period_label(start, end)})")
+    lines.append(f"# {gallery.name} 민심 리포트 ({_format_period_label(start, end)})")
     lines.append("")
     lines.append("## 한눈에 보기")
     lines.append(f"- 종합 감정: **{_sentiment_emoji(result.overall_sentiment)}**")
@@ -114,13 +116,19 @@ def render_markdown(
     return "\n".join(lines)
 
 
-def report_filename(start: datetime, end: datetime, *, daily: bool = False) -> str:
+def report_filename(
+    start: datetime,
+    end: datetime,
+    *,
+    daily: bool = False,
+    scope: str | None = None,
+) -> str:
+    """`scope`가 있으면 `jgi_tenbagger_...`, 없으면 레거시 `jgi_...`."""
+    prefix = f"jgi_{scope}" if scope else "jgi"
     if daily:
-        return f"jgi_daily_{start:%Y-%m-%d}.md"
+        return f"{prefix}_daily_{start:%Y-%m-%d}.md"
     end_inclusive = end - timedelta(seconds=1) if end > start else end
-    if start.date() == end_inclusive.date():
-        return f"jgi_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
-    return f"jgi_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
+    return f"{prefix}_{start:%Y-%m-%d}_to_{end_inclusive:%Y-%m-%d}.md"
 
 
 def write_report(
@@ -130,9 +138,10 @@ def write_report(
     end: datetime,
     *,
     daily: bool = False,
+    scope: str | None = None,
 ) -> Path:
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
-    path = out / report_filename(start, end, daily=daily)
+    path = out / report_filename(start, end, daily=daily, scope=scope)
     path.write_text(text, encoding="utf-8")
     return path

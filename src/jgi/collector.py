@@ -5,12 +5,13 @@ from datetime import date, datetime, timedelta
 from typing import Iterable
 
 from .checkpoint import RunCheckpoint
+from .galleries import normalize_category
 from .models import Post, PostMeta
-from .scraper import KST, Scraper, build_view_url, iter_list_pages, parse_view
+from .scraper import KST, ScrapeBlockedError, Scraper, iter_list_pages, parse_view
 
 logger = logging.getLogger(__name__)
 
-# 일반 갤러리에서 분석에 의미 있는 카테고리만 남긴다.
+# 기본 갤러리(한국주식)의 말머리 정책. 갤러리별 정책은 galleries.py 참고.
 DEFAULT_INCLUDE_CATEGORIES = {"일반", "뉴스"}
 
 
@@ -39,17 +40,26 @@ def collect_meta_since(
     cutoff: datetime,
     *,
     end: datetime | None = None,
-    include_categories: Iterable[str] = DEFAULT_INCLUDE_CATEGORIES,
+    include_categories: Iterable[str] | None = DEFAULT_INCLUDE_CATEGORIES,
+    exclude_categories: Iterable[str] | None = (),
     max_pages: int = 2000,
     progress=None,
     checkpoint: RunCheckpoint | None = None,
 ) -> list[PostMeta]:
     """`cutoff` 시각 이후(및 `end` 미만) 게시글 메타데이터를 페이지 1부터 순회하며 수집.
 
+    `include_categories`가 None이면 말머리 제한 없이 수집하고,
+    `exclude_categories`로 공지/광고/잡담 등을 걸러낸다 (이모지 말머리는 정규화 후 비교).
+
     `checkpoint`가 주어지면 기존 metas.jsonl 을 로드해 dedupe하고,
     `state.json`의 `last_scanned_page` 다음 페이지부터 이어한다.
     """
-    include = set(include_categories) if include_categories else None
+    include = (
+        {normalize_category(c) for c in include_categories}
+        if include_categories
+        else None
+    )
+    exclude = {normalize_category(c) for c in exclude_categories} if exclude_categories else set()
     collected: list[PostMeta] = []
     seen_nos: set[int] = set()
     start_page = 1
@@ -77,6 +87,11 @@ def collect_meta_since(
             logger.warning("max_pages=%d 도달, 수집 중단", max_pages)
             break
         if not posts:
+            if page == start_page and not collected:
+                # 첫 페이지부터 0건이면 차단/구조 변경을 의심한다 (조용히 빈 리포트 방지).
+                raise ScrapeBlockedError(
+                    f"페이지 {page}에서 게시글을 찾지 못했습니다 — 차단 또는 페이지 구조 변경 의심"
+                )
             logger.info("페이지 %d 게시글 없음, 종료", page)
             break
 
@@ -85,7 +100,10 @@ def collect_meta_since(
         for p in posts:
             if p.no in seen_nos:
                 continue
-            if include is not None and p.category not in include:
+            cat = normalize_category(p.category)
+            if include is not None and cat not in include:
+                continue
+            if cat in exclude:
                 continue
             if end is not None and p.posted_at >= end:
                 continue
@@ -145,7 +163,7 @@ def fetch_bodies(
             posts.append(post)
             continue
 
-        url = meta.url or build_view_url(meta.no)
+        url = meta.url or scraper.view_url(meta.no)
         try:
             html = scraper.fetch(url, referer=url)
             body = parse_view(html, max_chars=max_chars)

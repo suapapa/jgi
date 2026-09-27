@@ -2,6 +2,14 @@ import "./style.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 
+interface GalleryInfo {
+  key: string;
+  name: string;
+  short_name: string;
+  market_label: string;
+  url: string;
+}
+
 interface ReportEntry {
   slug: string;
   filename: string;
@@ -10,6 +18,19 @@ interface ReportEntry {
   title: string;
   mtime: number;
   size: number;
+  gallery: string;
+  gallery_name: string;
+  gallery_short_name: string;
+  market_label: string;
+}
+
+interface ReportPayload {
+  content: string;
+  fear_greed_score?: number;
+  gallery?: string;
+  gallery_name?: string;
+  gallery_short_name?: string;
+  market_label?: string;
 }
 
 const app = document.getElementById("app")!;
@@ -17,6 +38,15 @@ const app = document.getElementById("app")!;
 function slugFromPath(): string | null {
   const m = location.pathname.match(/^\/reports\/([^/]+)\/?$/);
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** 목록 화면의 선택된 탭 (?gallery=tenbagger). */
+function galleryFromQuery(): string | null {
+  return new URLSearchParams(location.search).get("gallery");
+}
+
+function listHref(galleryKey?: string | null): string {
+  return galleryKey ? `/?gallery=${encodeURIComponent(galleryKey)}` : "/";
 }
 
 const KST: Intl.DateTimeFormatOptions = { timeZone: "Asia/Seoul" };
@@ -43,7 +73,7 @@ function normalizeGeneratedAt(md: string): string {
   );
 }
 
-function renderFearGreedGauge(score: number): string {
+function renderFearGreedGauge(score: number, marketLabel: string): string {
   const startAngle = -Math.PI;
   const endAngle = 0;
   const angle = startAngle + (endAngle - startAngle) * (score / 100);
@@ -76,7 +106,7 @@ function renderFearGreedGauge(score: number): string {
     <div class="gauge-container">
       <div class="gauge-header">
         <span class="gauge-title">공포와 탐욕 지수</span>
-        <span class="gauge-subtitle">코스피 시장 심리</span>
+        <span class="gauge-subtitle">${escapeHtml(marketLabel)}</span>
       </div>
       <div class="gauge-content">
         <div class="gauge-value">
@@ -84,7 +114,7 @@ function renderFearGreedGauge(score: number): string {
           <span class="gauge-label">현재 지수</span>
         </div>
         <div class="gauge-visual">
-          <svg viewBox="0 0 300 180" class="gauge-svg" role="img" aria-label="공포와 탐욕 지수: ${score.toFixed(1)}점 (코스피 시장 심리)">
+          <svg viewBox="0 0 300 180" class="gauge-svg" role="img" aria-label="공포와 탐욕 지수: ${score.toFixed(1)}점 (${escapeHtml(marketLabel)})">
             <defs>
               <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
                 <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
@@ -122,6 +152,14 @@ function renderFearGreedGauge(score: number): string {
   `;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
 async function api<T>(path: string): Promise<T> {
   const res = await fetch(path, { credentials: "same-origin" });
   if (res.status === 401) {
@@ -139,7 +177,7 @@ function renderShell(inner: string): void {
     <header class="site-header">
       <a href="/" class="brand">
         <img src="/assets/brand-mark.png" alt="JGI" class="brand-mark" />
-        <span class="brand-text">DC인사이드 한국주식 갤 민심</span>
+        <span class="brand-text">DC인사이드 주식 갤 민심</span>
       </a>
     </header>
     <main class="main">${inner}</main>
@@ -151,51 +189,90 @@ function renderShell(inner: string): void {
   `;
 }
 
-function renderList(entries: ReportEntry[]): void {
-  if (!entries.length) {
-    renderShell(`
-      <section class="empty card">
-        <h1>리포트가 없습니다</h1>
-        <p>스케줄러가 전날 리포트를 생성할 때까지 기다리거나, 서버에서 수동 작업을 실행하세요.</p>
-      </section>
-    `);
-    return;
+function renderTabs(
+  galleries: GalleryInfo[],
+  active: string,
+  counts: Record<string, number>,
+): string {
+  const tabs = galleries
+    .map((g) => {
+      const isActive = g.key === active;
+      const count = counts[g.key] ?? 0;
+      return `
+        <a class="tab${isActive ? " is-active" : ""}"
+           href="${listHref(g.key)}"
+           role="tab"
+           aria-selected="${isActive}"
+           data-gallery="${escapeHtml(g.key)}">
+          <span class="tab-label">${escapeHtml(g.short_name)}</span>
+          <span class="tab-count">${count}</span>
+        </a>
+      `;
+    })
+    .join("");
+  return `<nav class="tabs" role="tablist" aria-label="갤러리 선택">${tabs}</nav>`;
+}
+
+function renderList(
+  galleries: GalleryInfo[],
+  all: ReportEntry[],
+  activeKey: string,
+): void {
+  const activeGallery =
+    galleries.find((g) => g.key === activeKey) ?? galleries[0];
+  const counts: Record<string, number> = {};
+  for (const e of all) {
+    counts[e.gallery] = (counts[e.gallery] ?? 0) + 1;
   }
+  const entries = all.filter((e) => e.gallery === activeGallery.key);
 
   const items = entries
     .map(
       (e) => `
       <a class="report-card card" href="/reports/${encodeURIComponent(e.slug)}">
         <time datetime="${e.start_date}">${e.start_date}</time>
-        <h2>${e.title}</h2>
+        <h2>${escapeHtml(e.title)}</h2>
         <p class="meta">${fmtDate(e.mtime)} · ${Math.round(e.size / 1024)} KB</p>
       </a>
     `,
     )
     .join("");
 
+  const body = entries.length
+    ? `<section class="report-grid">${items}</section>`
+    : `<section class="empty card">
+         <h2>${escapeHtml(activeGallery.name)} 리포트가 없습니다</h2>
+         <p>스케줄러가 전날 리포트를 생성할 때까지 기다리거나, 서버에서 수동 작업을 실행하세요.</p>
+       </section>`;
+
   renderShell(`
     <section class="list-hero">
       <h1>일일 민심 리포트</h1>
-      <p>${entries.length}개 보관 중</p>
+      <p>${escapeHtml(activeGallery.name)} · ${entries.length}개 보관 중</p>
     </section>
-    <section class="report-grid">${items}</section>
+    ${renderTabs(galleries, activeGallery.key, counts)}
+    ${body}
   `);
+  document.title = `${activeGallery.short_name} 민심 리포트 · JGI`;
 }
 
-function renderReport(slug: string, md: string, score?: number): void {
+function renderReport(slug: string, data: ReportPayload): void {
+  const marketLabel = data.market_label ?? "시장 심리";
   let html = DOMPurify.sanitize(
-    marked.parse(normalizeGeneratedAt(md), {
+    marked.parse(normalizeGeneratedAt(data.content), {
       gfm: true,
       breaks: true,
     }) as string,
   );
-  const gauge = score !== undefined ? renderFearGreedGauge(score) : "";
+  const gauge =
+    data.fear_greed_score !== undefined
+      ? renderFearGreedGauge(data.fear_greed_score, marketLabel)
+      : "";
   if (gauge) {
     html = html.replace("</h1>", `</h1>\n${gauge}`);
   }
   renderShell(`
-    <nav class="breadcrumb"><a href="/">← 목록</a></nav>
+    <nav class="breadcrumb"><a href="${listHref(data.gallery)}">← 목록</a></nav>
     <article class="report-body card prose">${html}</article>
   `);
   document.title = `${slug} · JGI`;
@@ -226,18 +303,26 @@ async function boot(): Promise<void> {
 
   try {
     if (slug) {
-      const data = await api<{ content: string; fear_greed_score?: number }>(
+      const data = await api<ReportPayload>(
         `/api/reports/${encodeURIComponent(slug)}/json`,
       );
-      renderReport(slug, data.content, data.fear_greed_score);
+      renderReport(slug, data);
     } else {
-      const entries = await api<ReportEntry[]>("/api/reports");
-      renderList(entries);
+      const [galleries, entries] = await Promise.all([
+        api<GalleryInfo[]>("/api/galleries"),
+        api<ReportEntry[]>("/api/reports"),
+      ]);
+      const requested = galleryFromQuery();
+      const activeKey =
+        galleries.find((g) => g.key === requested)?.key ??
+        galleries[0]?.key ??
+        "krstock";
+      renderList(galleries, entries, activeKey);
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     renderShell(
-      `<section class="error card"><h1>오류</h1><p>${msg}</p></section>`,
+      `<section class="error card"><h1>오류</h1><p>${escapeHtml(msg)}</p></section>`,
     );
   }
 }

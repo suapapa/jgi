@@ -14,8 +14,9 @@ from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from ..galleries import DEFAULT_GALLERY, GALLERIES, get_gallery
 from .reports_index import extract_fear_greed_score, list_reports, read_report
-from .scheduler import JobState, create_scheduler, run_scheduled_job
+from .scheduler import JobState, configured_galleries, create_scheduler, run_scheduled_job
 
 load_dotenv()
 logger = logging.getLogger(__name__)
@@ -61,11 +62,24 @@ def verify_credentials(
 class JobRequest(BaseModel):
     date: str | None = None
     force: bool = False
+    gallery: str | None = None
 
 
 class ReportResponse(BaseModel):
     content: str
     fear_greed_score: float | None = None
+    gallery: str | None = None
+    gallery_name: str | None = None
+    gallery_short_name: str | None = None
+    market_label: str | None = None
+
+
+class GalleryResponse(BaseModel):
+    key: str
+    name: str
+    short_name: str
+    market_label: str
+    url: str
 
 
 @asynccontextmanager
@@ -75,7 +89,11 @@ async def lifespan(app: FastAPI):
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
     _scheduler = create_scheduler(REPORTS_DIR, CACHE_DIR, job_state)
     _scheduler.start()
-    logger.info("스케줄러 시작 (reports=%s)", REPORTS_DIR)
+    logger.info(
+        "스케줄러 시작 (reports=%s, galleries=%s)",
+        REPORTS_DIR,
+        ",".join(g.key for g in configured_galleries()),
+    )
     yield
     if _scheduler:
         _scheduler.shutdown(wait=False)
@@ -94,12 +112,35 @@ def api_status(_: None = Depends(verify_credentials)):
     snap = job_state.snapshot()
     snap["reports_dir"] = str(REPORTS_DIR.resolve())
     snap["auth"] = _auth_enabled()
+    snap["galleries"] = [g.key for g in configured_galleries()]
     return snap
 
 
+@app.get("/api/galleries", response_model=list[GalleryResponse])
+def api_galleries(_: None = Depends(verify_credentials)):
+    return [
+        GalleryResponse(
+            key=g.key,
+            name=g.name,
+            short_name=g.short_name,
+            market_label=g.market_label,
+            url=g.url,
+        )
+        for g in configured_galleries()
+    ]
+
+
 @app.get("/api/reports")
-def api_reports(_: None = Depends(verify_credentials)):
-    entries = list_reports(REPORTS_DIR)
+def api_reports(
+    gallery: str | None = Query(None, description="갤러리 key (미지정 시 전체)"),
+    _: None = Depends(verify_credentials),
+):
+    if gallery:
+        try:
+            get_gallery(gallery)
+        except ValueError as e:
+            raise HTTPException(status_code=404, detail=str(e)) from None
+    entries = list_reports(REPORTS_DIR, gallery=gallery)
     return [e.to_dict() for e in entries]
 
 
@@ -117,10 +158,19 @@ def api_report_json(slug: str, _: None = Depends(verify_credentials)):
     if content is None:
         raise HTTPException(status_code=404, detail="Report not found")
     score = extract_fear_greed_score(content)
-    return ReportResponse(content=content, fear_greed_score=score)
+    entry = next((e for e in list_reports(REPORTS_DIR) if e.slug == slug), None)
+    gallery = GALLERIES.get(entry.gallery, DEFAULT_GALLERY) if entry else DEFAULT_GALLERY
+    return ReportResponse(
+        content=content,
+        fear_greed_score=score,
+        gallery=gallery.key,
+        gallery_name=gallery.name,
+        gallery_short_name=gallery.short_name,
+        market_label=gallery.market_label,
+    )
 
 
-def _run_job_bg(target_date: date | None, force: bool) -> None:
+def _run_job_bg(target_date: date | None, force: bool, galleries) -> None:
     try:
         run_scheduled_job(
             reports_dir=REPORTS_DIR,
@@ -128,6 +178,7 @@ def _run_job_bg(target_date: date | None, force: bool) -> None:
             target_date=target_date,
             top=TOP_DEFAULT,
             force=force,
+            galleries=galleries,
             state=job_state,
         )
     except Exception:
@@ -144,8 +195,18 @@ def api_trigger_job(
     if snap["running"]:
         raise HTTPException(status_code=409, detail="Job already running")
     target = date.fromisoformat(body.date) if body.date else None
-    background_tasks.add_task(_run_job_bg, target, body.force)
-    return {"queued": True, "date": body.date}
+    try:
+        galleries = (
+            [get_gallery(body.gallery)] if body.gallery else configured_galleries()
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from None
+    background_tasks.add_task(_run_job_bg, target, body.force, galleries)
+    return {
+        "queued": True,
+        "date": body.date,
+        "galleries": [g.key for g in galleries],
+    }
 
 
 # SPA: API routes registered above; static files last

@@ -440,6 +440,82 @@ body {
     }
 }
 
+/* 갤러리 탭 (한국주식 / 해외주식) */
+.tabs {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    margin: 0 0 1.25rem;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.02);
+}
+
+.tab {
+    flex: 1 1 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.6rem 0.9rem;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    text-decoration: none;
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 500;
+    white-space: nowrap;
+    transition:
+        color 0.2s,
+        background 0.2s,
+        border-color 0.2s;
+}
+
+.tab:hover {
+    color: var(--text);
+}
+
+.tab.is-active {
+    background: var(--surface);
+    border-color: var(--border);
+    color: var(--text);
+}
+
+.tab-count {
+    padding: 0.05rem 0.4rem;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.tab.is-active .tab-count {
+    background: rgba(61, 214, 140, 0.12);
+    color: var(--accent);
+}
+
+.empty h1,
+.empty h2 {
+    font-family: var(--font-display);
+    font-size: 1.3rem;
+    font-weight: 600;
+    margin: 0 0 0.5rem;
+}
+
+.empty p {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.9rem;
+}
+
+@media (max-width: 420px) {
+    .tab {
+        padding: 0.55rem 0.5rem;
+        font-size: 0.85rem;
+    }
+}
+
 a:focus-visible,
 .report-card:focus-visible {
     outline: 2px solid var(--accent);

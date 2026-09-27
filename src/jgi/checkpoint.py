@@ -31,7 +31,9 @@ class RunCheckpoint:
         run_date: date | None = None,
         *,
         run_id: str | None = None,
+        scope: str | None = None,
     ):
+        """`scope`는 갤러리별 캐시 분리용 접두 (예: tenbagger). None이면 레거시 이름."""
         if run_id is not None:
             self.run_id = run_id
         else:
@@ -39,6 +41,8 @@ class RunCheckpoint:
                 raise ValueError("days or run_id required")
             run_date = run_date or date.today()
             self.run_id = f"days{days}_{run_date:%Y-%m-%d}"
+        if scope and not self.run_id.startswith(f"{scope}_"):
+            self.run_id = f"{scope}_{self.run_id}"
         self.dir = Path(cache_dir) / self.run_id
         self.dir.mkdir(parents=True, exist_ok=True)
         self.state_path = self.dir / "state.json"

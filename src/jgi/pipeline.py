@@ -11,6 +11,7 @@ from typing import Callable
 from .analyzer import Analyzer
 from .checkpoint import RunCheckpoint
 from .collector import calendar_window, collect_meta_since, default_cutoff, fetch_bodies
+from .galleries import DEFAULT_GALLERY, Gallery
 from .ranker import select_top
 from .reporter import render_markdown, report_filename, write_report
 from .scraper import KST, Scraper
@@ -38,6 +39,7 @@ class ReportConfig:
     refresh_analysis: bool = False
     dry_run: bool = False
     force: bool = False
+    gallery: Gallery = DEFAULT_GALLERY
     on_meta_progress: ProgressMeta | None = None
     on_body_progress: ProgressBody | None = None
 
@@ -65,16 +67,22 @@ def resolve_window(cfg: ReportConfig) -> tuple[datetime, datetime, bool]:
 
 
 def checkpoint_for(cfg: ReportConfig, start: datetime, is_daily: bool) -> RunCheckpoint:
+    scope = cfg.gallery.scope
     if is_daily and cfg.target_date is not None:
         run_id = f"cal_{cfg.target_date:%Y-%m-%d}"
-        return RunCheckpoint(cfg.cache_dir, run_id=run_id)
+        return RunCheckpoint(cfg.cache_dir, run_id=run_id, scope=scope)
     days = cfg.days if cfg.days is not None else 7
-    return RunCheckpoint(cfg.cache_dir, days=days)
+    return RunCheckpoint(cfg.cache_dir, days=days, scope=scope)
 
 
 def expected_report_path(cfg: ReportConfig, start: datetime, end: datetime, is_daily: bool) -> Path:
-    fname = report_filename(start, end, daily=is_daily)
+    fname = report_filename(start, end, daily=is_daily, scope=cfg.gallery.scope)
     return cfg.output_dir / fname
+
+
+def _lock_path(cfg: ReportConfig) -> Path:
+    name = f".run_{cfg.gallery.key}.lock"
+    return cfg.cache_dir / name
 
 
 def run_report(cfg: ReportConfig) -> ReportRunResult:
@@ -93,14 +101,16 @@ def run_report(cfg: ReportConfig) -> ReportRunResult:
             skipped=True,
         )
 
-    lock_path = cfg.cache_dir / ".run.lock"
+    lock_path = _lock_path(cfg)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
     lock_file = lock_path.open("w")
     try:
         fcntl.flock(lock_file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
     except BlockingIOError:
         lock_file.close()
-        raise RuntimeError("다른 리포트 생성 작업이 실행 중입니다") from None
+        raise RuntimeError(
+            f"{cfg.gallery.short_name} 갤러리 리포트 생성 작업이 이미 실행 중입니다"
+        ) from None
 
     try:
         return _run_report_locked(cfg, start, end, is_daily, out_path)
@@ -130,11 +140,17 @@ def _run_report_locked(
         if cfg.on_meta_progress:
             cfg.on_meta_progress(page, page_new, total)
 
-    with Scraper(min_delay=cfg.min_delay, max_delay=cfg.max_delay) as scraper:
+    with Scraper(
+        min_delay=cfg.min_delay,
+        max_delay=cfg.max_delay,
+        gallery_id=cfg.gallery.gallery_id,
+    ) as scraper:
         metas = collect_meta_since(
             scraper,
             start,
             end=end if is_daily else None,
+            include_categories=cfg.gallery.include_categories,
+            exclude_categories=cfg.gallery.exclude_categories,
             max_pages=cfg.max_pages,
             progress=_meta_progress,
             checkpoint=checkpoint,
@@ -159,10 +175,15 @@ def _run_report_locked(
 
     if cfg.dry_run:
         cfg.output_dir.mkdir(parents=True, exist_ok=True)
-        path = cfg.output_dir / f"jgi_dryrun_{datetime.now(KST):%Y-%m-%d_%H%M%S}.json"
+        prefix = f"jgi_{cfg.gallery.scope}" if cfg.gallery.scope else "jgi"
+        path = (
+            cfg.output_dir
+            / f"{prefix}_dryrun_{datetime.now(KST):%Y-%m-%d_%H%M%S}.json"
+        )
         from .ranker import score
 
         dump = {
+            "gallery": cfg.gallery.key,
             "start": start.isoformat(),
             "end": end.isoformat(),
             "pages_scanned": pages_scanned,
@@ -187,7 +208,7 @@ def _run_report_locked(
     if cached_result is not None and not cfg.refresh_analysis:
         result = cached_result
     else:
-        analyzer = Analyzer(model=cfg.model)
+        analyzer = Analyzer(model=cfg.model, gallery=cfg.gallery)
         result = analyzer.analyze(metas, top_posts)
         checkpoint.save_analysis(result)
 
@@ -199,8 +220,11 @@ def _run_report_locked(
         start=start,
         end=display_end,
         pages_scanned=pages_scanned,
+        gallery=cfg.gallery,
     )
-    path = write_report(md, cfg.output_dir, start, end, daily=is_daily)
+    path = write_report(
+        md, cfg.output_dir, start, end, daily=is_daily, scope=cfg.gallery.scope
+    )
     return ReportRunResult(
         path=path,
         start=start,

@@ -5,10 +5,10 @@
 product
 
 ## Users
-Busy retail investors scanning market sentiment on mobile during commute or trading hours. They need to quickly digest overall market sentiment, hot stocks, and main topics on-the-go.
+Busy retail investors scanning market sentiment on mobile during commute or trading hours. They need to quickly digest overall market sentiment, hot stocks, and main topics on-the-go. Two audiences share the app: domestic (KOSPI/KOSDAQ) investors reading the Korean-stock gallery, and overseas (mainly US) investors reading the overseas-stock gallery.
 
 ## Product Purpose
-Summarize K-stock gallery post metadata and top-ranked post bodies using an LLM to generate daily sentiment reports, helping retail investors understand market dynamics without reading thousands of raw posts.
+Summarize DC Inside stock gallery post metadata and top-ranked post bodies using an LLM to generate daily sentiment reports, helping retail investors understand market dynamics without reading thousands of raw posts. Reports are separated per gallery and browsed via tabs (한국주식 / 해외주식) so each audience sees only its own market.
 
 ## Brand Personality
 Analytical, sharp, and terminal-adjacent. It maintains a clean, professional dark mode native to financial tools, delivering raw yet structured sentiment data.
