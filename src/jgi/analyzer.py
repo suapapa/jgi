@@ -6,24 +6,28 @@ import logging
 import os
 import re
 from collections import Counter
+from string import Template
 
 from openai import OpenAI
 from pydantic import ValidationError
 
+from .galleries import DEFAULT_GALLERY, Gallery
 from .models import AnalysisResult, Post, PostMeta
 
 logger = logging.getLogger(__name__)
 
 
-SYSTEM_PROMPT = """당신은 한국 주식 커뮤니티(DC인사이드 한국주식 갤러리) 게시글을 분석해\
+SYSTEM_PROMPT_TEMPLATE = Template("""당신은 한국 주식 커뮤니티(DC인사이드 $gallery_name) 게시글을 분석해\
  시장 민심을 요약하는 분석가입니다. 게시글에는 욕설/은어/풍자가 섞여 있으니 어조에 휘둘리지 말고,\
  다음을 파악하세요:
 
 - 전체 감정 (강세=bullish / 약세=bearish / 중립=neutral / 혼조=mixed)
-- 자주 언급된 종목/티커 (예: 삼성전자, SK하이닉스, 카카오, TSLA 등)와 각 종목에 대한 어조
+- 자주 언급된 종목/티커 (예: $ticker_examples)와 각 종목에 대한 어조
 - 핵심 화제 (정책/금리/특정 산업/이벤트 등)
 - 인상적이거나 대표적인 의견 (간결한 인용)
 - 투자자들이 걱정하는 리스크
+
+이 갤러리의 성격: $market_hint
 
 매우 중요한 출력 규칙:
 1. 응답은 반드시 JSON 객체 하나여야 한다. 마크다운/설명/코드블록 금지.
@@ -49,7 +53,20 @@ SYSTEM_PROMPT = """당신은 한국 주식 커뮤니티(DC인사이드 한국주
   ],
   "risks": ["<리스크 한국어>", ...],
   "summary": "<전반 민심 요약 한국어, 3~6문장>"
-}"""
+}""")
+
+
+def build_system_prompt(gallery: Gallery = DEFAULT_GALLERY) -> str:
+    """갤러리 성격에 맞춘 시스템 프롬프트 (키 스키마는 동일)."""
+    if gallery.key == DEFAULT_GALLERY.key:
+        ticker_examples = "삼성전자, SK하이닉스, 카카오, TSLA 등"
+    else:
+        ticker_examples = "NVDA, TSLA, AAPL, MSFT, 나스닥 지수 등"
+    return SYSTEM_PROMPT_TEMPLATE.substitute(
+        gallery_name=gallery.name,
+        market_hint=gallery.market_hint,
+        ticker_examples=ticker_examples,
+    )
 
 
 _RESULT_JSON_SCHEMA = {
@@ -118,12 +135,15 @@ class Analyzer:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        gallery: Gallery = DEFAULT_GALLERY,
     ):
         self.api_key = api_key or os.getenv("OPENAI_API_KEY")
         if not self.api_key:
             raise RuntimeError("OPENAI_API_KEY가 설정되어 있지 않습니다.")
         self.base_url = base_url or os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1"
         self.model = model or os.getenv("OPENAI_MODEL") or "gpt-4o-mini"
+        self.gallery = gallery
+        self.system_prompt = build_system_prompt(gallery)
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _build_user_prompt(
@@ -189,6 +209,10 @@ class Analyzer:
 
         return f"""# 분석 대상
 
+## 출처
+- 갤러리: {self.gallery.name} (DC인사이드 mgallery id={self.gallery.gallery_id})
+- 시장 성격: {self.gallery.market_hint}
+
 ## 통계
 - 수집 기간 게시글 수: {total}건
 - 누적 조회: {total_views:,} · 누적 추천: {total_rec:,} · 누적 댓글: {total_cmt:,}
@@ -202,7 +226,7 @@ class Analyzer:
 
 ---
 
-위 데이터를 바탕으로 한국 주식 시장에 대한 커뮤니티 민심을 분석하고, 시스템 메시지에 명시된 JSON 스키마대로 응답하세요.
+위 데이터를 바탕으로 {self.gallery.name} 커뮤니티의 시장 민심을 분석하고, 시스템 메시지에 명시된 JSON 스키마대로 응답하세요.
 
 규칙 재확인:
 - 출력은 JSON 객체 **하나만**. 앞뒤 설명/마크다운/```json 금지.
@@ -220,7 +244,7 @@ class Analyzer:
         )
 
         messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "system", "content": self.system_prompt},
             {"role": "user", "content": user_prompt},
         ]
         content = self._call(messages)

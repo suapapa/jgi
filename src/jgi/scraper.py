@@ -16,14 +16,24 @@ from tenacity import (
     wait_exponential,
 )
 
+from .galleries import DEFAULT_GALLERY_KEY
 from .models import PostMeta
 
 logger = logging.getLogger(__name__)
 
-GALLERY_ID = "krstock"
+GALLERY_ID = DEFAULT_GALLERY_KEY  # 하위 호환용 기본값
 BASE = "https://gall.dcinside.com"
 LIST_PATH = "/mgallery/board/lists/"
 VIEW_PATH = "/mgallery/board/view/"
+
+# DC는 차단할 때 상태코드 대신 **빈 본문(200, 0자)** 을 돌려주는 경우가 있다.
+# 이걸 정상 응답으로 받아들이면 "게시글 없음"으로 조용히 수집이 끝나
+# 리포트가 잘린 채로 생성된다 → 재시도 후 실패로 처리한다.
+MIN_HTML_CHARS = 200
+
+
+class ScrapeBlockedError(RuntimeError):
+    """차단으로 추정되는 비정상적으로 짧은 응답."""
 
 KST = timezone(timedelta(hours=9))
 
@@ -33,7 +43,10 @@ _RE_DATE_SLASH = re.compile(r"\d{2}/\d{2}/\d{2}")
 _RE_LEADING_INT = re.compile(r"(\d+)")
 _RE_MULTI_NEWLINE = re.compile(r"\n{3,}")
 
-_LIST_REFERER = f"{BASE}{LIST_PATH}"
+
+def list_referer(gallery_id: str = GALLERY_ID) -> str:
+    return f"{BASE}{LIST_PATH}?id={gallery_id}"
+
 
 _USER_AGENTS = [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -42,12 +55,12 @@ _USER_AGENTS = [
 ]
 
 
-def build_list_url(page: int = 1) -> str:
-    return f"{BASE}{LIST_PATH}?id={GALLERY_ID}&page={page}"
+def build_list_url(page: int = 1, gallery_id: str = GALLERY_ID) -> str:
+    return f"{BASE}{LIST_PATH}?id={gallery_id}&page={page}"
 
 
-def build_view_url(no: int) -> str:
-    return f"{BASE}{VIEW_PATH}?id={GALLERY_ID}&no={no}"
+def build_view_url(no: int, gallery_id: str = GALLERY_ID) -> str:
+    return f"{BASE}{VIEW_PATH}?id={gallery_id}&no={no}"
 
 
 class Scraper:
@@ -56,9 +69,11 @@ class Scraper:
         min_delay: float = 0.4,
         max_delay: float = 0.9,
         timeout: float = 15.0,
+        gallery_id: str = GALLERY_ID,
     ):
         self.min_delay = min_delay
         self.max_delay = max_delay
+        self.gallery_id = gallery_id
         self._client = httpx.Client(
             timeout=timeout,
             follow_redirects=True,
@@ -71,6 +86,16 @@ class Scraper:
 
     def close(self) -> None:
         self._client.close()
+
+    def list_url(self, page: int = 1) -> str:
+        return build_list_url(page, self.gallery_id)
+
+    def view_url(self, no: int) -> str:
+        return build_view_url(no, self.gallery_id)
+
+    @property
+    def list_referer(self) -> str:
+        return list_referer(self.gallery_id)
 
     def __enter__(self) -> "Scraper":
         return self
@@ -86,9 +111,9 @@ class Scraper:
                 time.sleep(target - elapsed)
 
     @retry(
-        stop=stop_after_attempt(4),
-        wait=wait_exponential(multiplier=1, min=2, max=20),
-        retry=retry_if_exception_type((httpx.HTTPError,)),
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=1, min=3, max=30),
+        retry=retry_if_exception_type((httpx.HTTPError, ScrapeBlockedError)),
         reraise=True,
     )
     def fetch(self, url: str, referer: str | None = None) -> str:
@@ -108,7 +133,13 @@ class Scraper:
                 response=resp,
             )
         resp.raise_for_status()
-        return resp.text
+        text = resp.text
+        if len(text.strip()) < MIN_HTML_CHARS:
+            # 차단(빈 200) — 조용히 빈 결과로 처리하지 않고 재시도/실패시킨다.
+            raise ScrapeBlockedError(
+                f"빈 응답({len(text)}자) — 차단으로 추정: {url}"
+            )
+        return text
 
 
 def _parse_dc_datetime(td_date) -> datetime | None:
@@ -146,7 +177,7 @@ def _int_or_zero(s: str) -> int:
     return int(m.group(1)) if m else 0
 
 
-def parse_list(html: str) -> list[PostMeta]:
+def parse_list(html: str, gallery_id: str = GALLERY_ID) -> list[PostMeta]:
     soup = BeautifulSoup(html, "lxml")
     table = soup.select_one("table.gall_list")
     if table is None:
@@ -164,7 +195,14 @@ def parse_list(html: str) -> list[PostMeta]:
         no = int(num_text)
 
         subj_td = tr.select_one("td.gall_subject")
-        category = subj_td.get_text(strip=True) if subj_td else ""
+        category = ""
+        if subj_td is not None:
+            # 말머리 셀은 폭이 좁으면 잘린 텍스트만 넣고, 원본은 툴팁
+            # (`p.subject_inner#head_txt_org_*`)에 담는다.
+            # 예) '🐕헛소<p class="subject_inner">🐕헛소리</p>' → '🐕헛소리'
+            inner = subj_td.select_one("p.subject_inner")
+            src = inner if inner is not None else subj_td
+            category = src.get_text(strip=True)
 
         tit_td = tr.select_one("td.gall_tit")
         if tit_td is None:
@@ -172,7 +210,13 @@ def parse_list(html: str) -> list[PostMeta]:
         a = tit_td.select_one("a")
         title = a.get_text(strip=True) if a else tit_td.get_text(strip=True)
         href = a.get("href", "") if a else ""
-        url = href if href.startswith("http") else f"{BASE}{href}" if href else build_view_url(no)
+        url = (
+            href
+            if href.startswith("http")
+            else f"{BASE}{href}"
+            if href
+            else build_view_url(no, gallery_id)
+        )
 
         reply_span = tit_td.select_one(".reply_num")
         comments = _int_or_zero(reply_span.get_text(strip=True).strip("[]")) if reply_span else 0
@@ -232,11 +276,17 @@ def parse_view(html: str, max_chars: int = 4000) -> str:
     return text
 
 
-def iter_list_pages(scraper: Scraper, start: int = 1) -> Iterable[tuple[int, list[PostMeta]]]:
+def iter_list_pages(
+    scraper: Scraper,
+    start: int = 1,
+    gallery_id: str | None = None,
+) -> Iterable[tuple[int, list[PostMeta]]]:
     """페이지 1부터 무한히 yield. 호출자가 break 조건으로 끊는다."""
+    gid = gallery_id or scraper.gallery_id
+    referer = list_referer(gid)
     page = start
     while True:
-        url = build_list_url(page)
-        html = scraper.fetch(url, referer=_LIST_REFERER)
-        yield page, parse_list(html)
+        url = build_list_url(page, gid)
+        html = scraper.fetch(url, referer=referer)
+        yield page, parse_list(html, gid)
         page += 1

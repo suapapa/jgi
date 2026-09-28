@@ -85,6 +85,13 @@ The JGI interface is designed to be flat and structural. Depth is conveyed purel
 - **Border:** Thin Border Stroke (`1px solid rgba(255, 255, 255, 0.08)`)
 - **Internal Padding:** `1.25rem 1.5rem` (Report cards), `2rem 2.25rem` (Report body)
 
+### Gallery Tabs (한국주식 / 해외주식)
+- **Shape:** Segmented control — one bordered track (`12px` radius, `rgba(255,255,255,0.02)` fill) holding two equally-sized tabs (`8px` radius).
+- **Rest State:** Transparent background, transparent border, Cool Slate Muted label. Tabs never use colored fills at rest.
+- **Active State:** Charcoal Surface fill + thin border + Off-White label; the count badge switches to the Deep Mint accent. This active state is one of the two allowed uses of the accent color (see The Color-Only-For-Data Rule).
+- **Count Badge:** Pill (`999px`) with `0.72rem` tabular numerals showing how many reports that gallery has archived.
+- **Rule:** Tabs are links (`?gallery=<key>`), not buttons — the active tab is always encoded in the URL so the view is shareable.
+
 ### Fear & Greed Gauge
 - **Dial Segments:** Curved arc with 5 color sections representing market sentiment states: Extreme Fear (`#c41e1e`), Fear (`#f07178`), Neutral (`#e6c07b`), Greed (`#3dd68c`), Extreme Greed (`#1a7d5a`).
 - **Pointer:** Off-White needle (`#e8ecf4`) with a soft blur dropshadow overlay for clarity.
