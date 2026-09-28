@@ -1,3 +1,9 @@
+import "@fontsource/ibm-plex-sans-kr/400.css";
+import "@fontsource/ibm-plex-sans-kr/500.css";
+import "@fontsource/ibm-plex-sans-kr/600.css";
+import "@fontsource/ibm-plex-mono/400.css";
+import "@fontsource/ibm-plex-mono/500.css";
+import "@fontsource/ibm-plex-mono/600.css";
 import "./style.css";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
@@ -115,26 +121,13 @@ function renderFearGreedGauge(score: number, marketLabel: string): string {
         </div>
         <div class="gauge-visual">
           <svg viewBox="0 0 300 180" class="gauge-svg" role="img" aria-label="공포와 탐욕 지수: ${score.toFixed(1)}점 (${escapeHtml(marketLabel)})">
-            <defs>
-              <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
-                <feGaussianBlur in="SourceAlpha" stdDeviation="2"/>
-                <feOffset dx="1" dy="1" result="offsetblur"/>
-                <feComponentTransfer>
-                  <feFuncA type="linear" slope="0.3"/>
-                </feComponentTransfer>
-                <feMerge>
-                  <feMergeNode/>
-                  <feMergeNode in="SourceGraphic"/>
-                </feMerge>
-              </filter>
-            </defs>
             ${segments.join("")}
             <path d="M ${cx + 4 * Math.cos(angle - Math.PI / 2)} ${cy + 4 * Math.sin(angle - Math.PI / 2)}
                      L ${pointerX} ${pointerY}
                      L ${cx + 4 * Math.cos(angle + Math.PI / 2)} ${cy + 4 * Math.sin(angle + Math.PI / 2)} Z"
-                  fill="#e8ecf4" filter="url(#shadow)"/>
+                  fill="#e8ecf4" style="filter: drop-shadow(0 1px 3px rgba(0,0,0,0.3))"/>
             <circle cx="${cx}" cy="${cy}" r="6" fill="#e8ecf4"/>
-            <circle cx="${cx}" cy="${cy}" r="2" fill="#141a24"/>
+            <circle cx="${cx}" cy="${cy}" r="2" fill="#121820"/>
           </svg>
         </div>
         <div class="gauge-legend">
@@ -147,7 +140,6 @@ function renderFearGreedGauge(score: number, marketLabel: string): string {
           </div>
         </div>
       </div>
-
     </div>
   `;
 }
@@ -176,15 +168,17 @@ function renderShell(inner: string): void {
   app.innerHTML = `
     <header class="site-header">
       <a href="/" class="brand">
-        <img src="/assets/brand-mark.png" alt="JGI" class="brand-mark" />
-        <span class="brand-text">DC인사이드 주식 갤 민심</span>
+        <img src="/assets/brand-mark.png" alt="JGI" class="brand-mark" width="44" height="44" />
+        <span class="brand-text">
+          <span class="brand-name">DC인사이드 주식 갤 민심</span>
+          <span class="brand-sub">JGI Sentiment Index</span>
+        </span>
       </a>
     </header>
     <main class="main">${inner}</main>
     <footer class="site-footer">
-      <p>자동 수집·LLM 요약 · 투자 참고용</p>
-      <hr class="footer-divider" />
-      <p class="footer-copy">© Homin Lee <a href="mailto:i@homin.dev">i@homin.dev</a> All rights reserved.</p>
+      <p>자동 수집, LLM 요약. 투자 참고용.</p>
+      <p class="footer-copy">© Homin Lee <a href="mailto:i@homin.dev">i@homin.dev</a></p>
     </footer>
   `;
 }
@@ -248,7 +242,7 @@ function renderList(
   renderShell(`
     <section class="list-hero">
       <h1>일일 민심 리포트</h1>
-      <p>${escapeHtml(activeGallery.name)} · ${entries.length}개 보관 중</p>
+      <p>${escapeHtml(activeGallery.name)} · <span class="count">${entries.length}</span>개 보관 중</p>
     </section>
     ${renderTabs(galleries, activeGallery.key, counts)}
     ${body}
@@ -278,27 +272,19 @@ function renderReport(slug: string, data: ReportPayload): void {
   document.title = `${slug} · JGI`;
 }
 
-async function boot(): Promise<void> {
-  // Sync scroll for background animations using requestAnimationFrame to prevent layout thrashing
-  let ticking = false;
-  window.addEventListener(
-    "scroll",
-    () => {
-      if (!ticking) {
-        window.requestAnimationFrame(() => {
-          document.documentElement.style.setProperty(
-            "--scroll-y",
-            `${window.scrollY}`,
-          );
-          ticking = false;
-        });
-        ticking = true;
-      }
-    },
-    { passive: true },
-  );
+function renderLoading(): void {
+  renderShell(`
+    <div class="loading" aria-busy="true" aria-live="polite">
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+      <div class="skeleton-row"></div>
+      <p class="visually-hidden">불러오는 중</p>
+    </div>
+  `);
+}
 
-  renderShell(`<p class="loading">불러오는 중…</p>`);
+async function boot(): Promise<void> {
+  renderLoading();
   const slug = slugFromPath();
 
   try {
