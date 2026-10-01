@@ -414,10 +414,11 @@ body {
 
 .report-body {
   padding: 1.75rem 2rem;
+  width: 100%;
 }
 
 .prose {
-  max-width: 75ch;
+  max-width: none;
 }
 
 .prose h1 {
